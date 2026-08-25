@@ -1270,7 +1270,7 @@ struct TaskDraft: Identifiable {
     }
 }
 
-struct ContentView: View {
+struct TaskWorkspaceView: View {
     @StateObject private var model = TaskModel()
     @State private var selectedFilter: TaskFilter = .open
     @State private var search = ""
@@ -2201,9 +2201,11 @@ struct ProgressRing: View {
 
 @main
 struct QuietTasksApp: App {
+    @NSApplicationDelegateAdaptor(QuietTasksAppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootWorkspaceView()
         }
         .commands {
             CommandGroup(replacing: .newItem) {}

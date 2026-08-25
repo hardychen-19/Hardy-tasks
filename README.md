@@ -24,6 +24,18 @@ Feel free to download it, use it, fork it, and contribute.
 - Completing from the widget opens the app for confirmation before the task is cleared.
 - No account or cloud service required for local tasks.
 
+## Daily Flow Product Mode
+
+This branch also turns Quiet Tasks into a native day compass for notched MacBooks:
+
+- Hover the middle section of the left screen edge to reveal today's read-only timeline.
+- Hover the notch shoulder to expand a large task surface; unfinished tasks can be checked directly.
+- Both surfaces hide automatically and respect Reduce Motion.
+- The main app opens to a local week schedule and keeps schedule data separate from task data.
+- A menu-bar control opens the app, pauses edge triggers, and manages startup behavior.
+
+The interaction and visual rationale live in [`PRODUCT.md`](PRODUCT.md) and [`DESIGN.md`](DESIGN.md).
+
 ## Why This Is Better
 
 Most to-do apps are either full productivity suites or they do not behave like a proper macOS desktop widget. Quiet Tasks is intentionally smaller:
@@ -45,6 +57,12 @@ The current local development build stores shared app/widget data at:
 
 ```text
 /Users/Shared/QuietTasks/tasks.json
+```
+
+Local schedule data is stored separately at:
+
+```text
+/Users/Shared/QuietTasks/schedule.json
 ```
 
 That lets an unsigned local app and WidgetKit extension share task data during development. A production-distributed version should move this to a signed App Group.

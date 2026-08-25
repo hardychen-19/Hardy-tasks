@@ -17,6 +17,7 @@
 		AA0000000000000000000008 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* WidgetKit.framework */; };
 		AA0000000000000000000009 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* SwiftUI.framework */; };
 		AA000000000000000000000A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* WidgetKit.framework */; };
+		AA000000000000000000000B /* DailyFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001C /* DailyFlow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +56,7 @@
 		AA0000000000000000000019 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		AA000000000000000000001A /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		AA000000000000000000001B /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+		AA000000000000000000001C /* DailyFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/QuietTasksApp/DailyFlow.swift; sourceTree = "<group>"; };
 		AA0000000000000000000021 /* Quiet Tasks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Quiet Tasks.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000022 /* QuietTasksWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = QuietTasksWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -103,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000011 /* QuietTasksApp.swift */,
+				AA000000000000000000001C /* DailyFlow.swift */,
 				AA0000000000000000000014 /* AppInfo.plist */,
 				AA000000000000000000001A /* App.entitlements */,
 				AA0000000000000000000016 /* Assets.xcassets */,
@@ -235,6 +238,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000001 /* QuietTasksApp.swift in Sources */,
+				AA000000000000000000000B /* DailyFlow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

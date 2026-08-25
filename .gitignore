@@ -10,6 +10,8 @@ build/
 dist/
 DerivedData/
 XcodeDerivedData/
+artifacts/
+XcodeDerivedData/
 *.dSYM/
 *.xcresult/
 
