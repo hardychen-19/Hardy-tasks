@@ -37,7 +37,7 @@ Do not resemble a card-heavy dashboard, a phone-shaped Dynamic Island demo, a ma
 - Keep schedule and tasks semantically and visually separate.
 - Reveal the task panel only after the pointer reaches the notch trigger; keep it visible only while the pointer remains inside the trigger or panel, then disappear without residue.
 - Let time and typography form the layout before adding containers.
-- Use motion to preserve spatial relationships: edge to panel, notch to task surface, task to completion.
+- Use motion to preserve spatial relationships: edge to panel, physical notch expanding into the task surface, task to completion.
 - Preserve local ownership, existing task data, and reversible installation.
 
 ## Accessibility & Inclusion

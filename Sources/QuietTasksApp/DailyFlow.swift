@@ -689,8 +689,15 @@ private struct DayEdgePanelView: View {
     }
 }
 
+private final class TaskIslandPresentation: ObservableObject {
+    @Published var isExpanded = false
+    @Published var showsContent = false
+}
+
 private struct TaskIslandView: View {
     @ObservedObject var model: TaskModel
+    @ObservedObject var presentation: TaskIslandPresentation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let onOpenApp: () -> Void
 
     var body: some View {
@@ -747,14 +754,83 @@ private struct TaskIslandView: View {
                 .scrollIndicators(.visible)
             }
         }
+        .opacity(presentation.showsContent ? 1 : 0)
+        .animation(contentAnimation, value: presentation.showsContent)
         .foregroundStyle(.primary)
         .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(NotchExpansionShape(progress: presentation.isExpanded ? 1 : 0))
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            NotchExpansionShape(progress: presentation.isExpanded ? 1 : 0)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
+        .animation(shellAnimation, value: presentation.isExpanded)
         .environment(\.locale, Locale(identifier: "en_US"))
+    }
+
+    private var shellAnimation: Animation {
+        guard !reduceMotion else { return .linear(duration: 0.01) }
+        if presentation.isExpanded {
+            return .timingCurve(0.22, 1, 0.36, 1, duration: 0.24)
+        }
+        return .timingCurve(0.25, 1, 0.5, 1, duration: 0.18).delay(0.05)
+    }
+
+    private var contentAnimation: Animation {
+        guard !reduceMotion else { return .linear(duration: 0.01) }
+        if presentation.showsContent {
+            return .easeOut(duration: 0.15).delay(0.06)
+        }
+        return .easeOut(duration: 0.10)
+    }
+}
+
+private struct NotchExpansionShape: Shape {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let value = min(max(progress, 0), 1)
+        let collapsedWidth = min(224, rect.width * 0.48)
+        let collapsedHeight: CGFloat = 34
+        let width = collapsedWidth + (rect.width - collapsedWidth) * value
+        let height = collapsedHeight + (rect.height - collapsedHeight) * value
+        let bounds = CGRect(
+            x: rect.midX - width / 2,
+            y: rect.minY,
+            width: width,
+            height: height
+        )
+        let topRadius = 16 * value
+        let bottomRadius = 11 + 5 * value
+        var path = Path()
+
+        path.move(to: CGPoint(x: bounds.minX + topRadius, y: bounds.minY))
+        path.addLine(to: CGPoint(x: bounds.maxX - topRadius, y: bounds.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: bounds.maxX, y: bounds.minY + topRadius),
+            control: CGPoint(x: bounds.maxX, y: bounds.minY)
+        )
+        path.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY - bottomRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: bounds.maxX - bottomRadius, y: bounds.maxY),
+            control: CGPoint(x: bounds.maxX, y: bounds.maxY)
+        )
+        path.addLine(to: CGPoint(x: bounds.minX + bottomRadius, y: bounds.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: bounds.minX, y: bounds.maxY - bottomRadius),
+            control: CGPoint(x: bounds.minX, y: bounds.maxY)
+        )
+        path.addLine(to: CGPoint(x: bounds.minX, y: bounds.minY + topRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: bounds.minX + topRadius, y: bounds.minY),
+            control: CGPoint(x: bounds.minX, y: bounds.minY)
+        )
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -857,12 +933,14 @@ private final class OverlayPanel: NSPanel {
 final class OverlayCoordinator {
     private let tasks = TaskModel()
     private let schedule = ScheduleModel()
+    private let islandPresentation = TaskIslandPresentation()
     private var edgeTrigger: NSPanel?
     private var notchTrigger: NSPanel?
     private var edgePanel: OverlayPanel?
     private var islandPanel: OverlayPanel?
     private var edgeWorkItem: DispatchWorkItem?
     private var islandWorkItem: DispatchWorkItem?
+    private var islandDismissWorkItem: DispatchWorkItem?
     private var islandPointerTimer: Timer?
     private var islandPointerOutsideSince: Date?
     private(set) var isPaused = false
@@ -1015,24 +1093,24 @@ final class OverlayCoordinator {
     private func showIslandPanel() {
         guard !isPaused, let screen = targetScreen else { return }
         islandWorkItem?.cancel()
+        islandDismissWorkItem?.cancel()
         tasks.reload()
         let width = min(560, screen.frame.width * 0.46)
         let contentHeight = 88 + CGFloat(tasks.openTasks.count) * 84
         let height = min(500, max(240, contentHeight))
-        let menuBarOverlap: CGFloat = 8
         let finalFrame = NSRect(
             x: screen.frame.midX - width / 2,
-            y: screen.frame.maxY - menuBarOverlap - height,
+            y: screen.frame.maxY - height,
             width: width,
             height: height
         )
-        let startFrame = finalFrame.offsetBy(dx: 0, dy: 14)
 
         if islandPanel == nil {
-            let panel = makeOverlayPanel(frame: startFrame)
+            let panel = makeOverlayPanel(frame: finalFrame)
             panel.level = .mainMenu + 1
             panel.contentView = NSHostingView(rootView: TaskIslandView(
                 model: tasks,
+                presentation: islandPresentation,
                 onOpenApp: { [weak self] in
                     self?.openMainApp(schedule: false)
                     self?.hideIslandPanel()
@@ -1041,18 +1119,38 @@ final class OverlayCoordinator {
             islandPanel = panel
         }
         guard let islandPanel else { return }
-        islandPanel.setFrame(startFrame, display: false)
-        islandPanel.alphaValue = 0
+        islandPanel.setFrame(finalFrame, display: false)
+        islandPanel.alphaValue = 1
+        let wasVisible = islandPanel.isVisible
+        if !wasVisible {
+            islandPresentation.isExpanded = false
+            islandPresentation.showsContent = false
+        }
         islandPanel.orderFrontRegardless()
-        animate(islandPanel, to: finalFrame, alpha: 1, duration: 0.18)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.islandPanel?.isVisible == true else { return }
+            self.islandPresentation.isExpanded = true
+            self.islandPresentation.showsContent = true
+        }
         startIslandPointerMonitor()
     }
 
     private func hideIslandPanel() {
         stopIslandPointerMonitor()
         guard let panel = islandPanel, panel.isVisible else { return }
-        let target = panel.frame.offsetBy(dx: 0, dy: 12)
-        animate(panel, to: target, alpha: 0, duration: 0.14) { panel.orderOut(nil) }
+        islandDismissWorkItem?.cancel()
+        islandPresentation.isExpanded = false
+        islandPresentation.showsContent = false
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.orderOut(nil)
+            return
+        }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, !self.islandPresentation.isExpanded else { return }
+            self.islandPanel?.orderOut(nil)
+        }
+        islandDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
     }
 
     private func startIslandPointerMonitor() {
