@@ -754,6 +754,7 @@ private struct TaskIslandView: View {
                 .scrollIndicators(.visible)
             }
         }
+        .drawingGroup(opaque: false, colorMode: .nonLinear)
         .opacity(presentation.showsContent ? 1 : 0)
         .animation(contentAnimation, value: presentation.showsContent)
         .foregroundStyle(.primary)
@@ -770,17 +771,17 @@ private struct TaskIslandView: View {
     private var shellAnimation: Animation {
         guard !reduceMotion else { return .linear(duration: 0.01) }
         if presentation.isExpanded {
-            return .timingCurve(0.22, 1, 0.36, 1, duration: 0.24)
+            return .timingCurve(0.22, 1, 0.36, 1, duration: 0.18)
         }
-        return .timingCurve(0.25, 1, 0.5, 1, duration: 0.18).delay(0.05)
+        return .timingCurve(0.25, 1, 0.5, 1, duration: 0.14).delay(0.035)
     }
 
     private var contentAnimation: Animation {
         guard !reduceMotion else { return .linear(duration: 0.01) }
         if presentation.showsContent {
-            return .easeOut(duration: 0.15).delay(0.06)
+            return .easeOut(duration: 0.12).delay(0.035)
         }
-        return .easeOut(duration: 0.10)
+        return .easeOut(duration: 0.07)
     }
 }
 
@@ -993,7 +994,7 @@ final class OverlayCoordinator {
             x: screen.frame.midX - notchWidth / 2,
             y: screen.frame.maxY - 42,
             width: notchWidth,
-            height: 14
+            height: 42
         )
         notchTrigger = makeTrigger(frame: notchFrame, enter: { [weak self] in
             self?.scheduleIslandShow()
@@ -1040,7 +1041,7 @@ final class OverlayCoordinator {
         islandWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.showIslandPanel() }
         islandWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: item)
     }
 
     private func cancelPendingIslandShow() {
@@ -1150,12 +1151,12 @@ final class OverlayCoordinator {
             self.islandPanel?.orderOut(nil)
         }
         islandDismissWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
     }
 
     private func startIslandPointerMonitor() {
         stopIslandPointerMonitor()
-        let timer = Timer(timeInterval: 0.06, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.evaluateIslandPointer() }
         }
         islandPointerTimer = timer
@@ -1183,7 +1184,7 @@ final class OverlayCoordinator {
         }
 
         if let outsideSince = islandPointerOutsideSince {
-            if Date().timeIntervalSince(outsideSince) >= 0.14 {
+            if Date().timeIntervalSince(outsideSince) >= 0.07 {
                 hideIslandPanel()
             }
         } else {
