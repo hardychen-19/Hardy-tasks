@@ -631,23 +631,27 @@ private struct DeadlineWaveView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !presentation.isVisible)) { context in
             let elapsed = context.date.timeIntervalSince(presentation.startedAt)
+            let progress = breathProgress(elapsed)
+            let breath = sin(Double.pi * Double(progress))
             ZStack(alignment: .top) {
-                ForEach(0..<3, id: \.self) { index in
-                    let progress = ringProgress(index, elapsed: elapsed)
-                    let opacity = ringOpacity(progress)
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 10 + 10 * progress,
-                        bottomTrailingRadius: 10 + 10 * progress,
-                        topTrailingRadius: 0
-                    )
-                    .stroke(presentation.urgency.color.opacity(opacity), lineWidth: 1.4)
-                    .shadow(color: presentation.urgency.color.opacity(opacity * 0.72), radius: 5)
-                    .frame(
-                        width: presentation.notchSize.width + 68 * progress,
-                        height: presentation.notchSize.height + 50 * progress
-                    )
-                }
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 11 + 2 * CGFloat(breath),
+                    bottomTrailingRadius: 11 + 2 * CGFloat(breath),
+                    topTrailingRadius: 0
+                )
+                .stroke(
+                    presentation.urgency.color.opacity(0.16 + 0.64 * breath),
+                    lineWidth: 1.15
+                )
+                .shadow(
+                    color: presentation.urgency.color.opacity(0.34 * breath),
+                    radius: 3.5 + 2.5 * breath
+                )
+                .frame(
+                    width: presentation.notchSize.width + 7 * breath,
+                    height: presentation.notchSize.height + 6 * breath
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -655,17 +659,11 @@ private struct DeadlineWaveView: View {
         .accessibilityHidden(true)
     }
 
-    private func ringProgress(_ index: Int, elapsed: TimeInterval) -> CGFloat {
+    private func breathProgress(_ elapsed: TimeInterval) -> CGFloat {
         if reduceMotion {
-            return min(max(CGFloat(elapsed / 0.4), 0), 1)
+            return min(max(CGFloat(elapsed / 0.3), 0), 1)
         }
-        let delay = Double(index) * 0.22
-        return min(max(CGFloat((elapsed - delay) / 1.05), 0), 1)
-    }
-
-    private func ringOpacity(_ progress: CGFloat) -> Double {
-        guard progress > 0, progress < 1 else { return 0 }
-        return 0.78 * sin(Double.pi * Double(progress))
+        return min(max(CGFloat(elapsed / 0.86), 0), 1)
     }
 }
 
@@ -839,6 +837,8 @@ private final class TaskIslandPresentation: ObservableObject {
     @Published var isExpanded = false
     @Published var showsContent = false
     @Published var collapsedNotchSize = CGSize(width: 224, height: 34)
+    @Published var deadlineCue: DeadlineCue?
+    @Published var additionalDeadlineCount = 0
 }
 
 private struct TaskIslandView: View {
@@ -848,6 +848,33 @@ private struct TaskIslandView: View {
     let onOpenApp: () -> Void
 
     var body: some View {
+        Group {
+            if let cue = presentation.deadlineCue {
+                deadlineAlert(cue)
+            } else {
+                regularTaskList
+            }
+        }
+        .opacity(presentation.showsContent ? 1 : 0)
+        .animation(contentAnimation, value: presentation.showsContent)
+        .foregroundStyle(.primary)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(NotchExpansionShape(
+            progress: presentation.isExpanded ? 1 : 0,
+            collapsedSize: presentation.collapsedNotchSize
+        ))
+        .overlay {
+            NotchExpansionShape(
+                progress: presentation.isExpanded ? 1 : 0,
+                collapsedSize: presentation.collapsedNotchSize
+            )
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        }
+        .animation(shellAnimation, value: presentation.isExpanded)
+        .environment(\.locale, Locale(identifier: "en_US"))
+    }
+
+    private var regularTaskList: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 Text("To Do")
@@ -901,23 +928,61 @@ private struct TaskIslandView: View {
                 .scrollIndicators(.visible)
             }
         }
-        .opacity(presentation.showsContent ? 1 : 0)
-        .animation(contentAnimation, value: presentation.showsContent)
-        .foregroundStyle(.primary)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(NotchExpansionShape(
-            progress: presentation.isExpanded ? 1 : 0,
-            collapsedSize: presentation.collapsedNotchSize
-        ))
-        .overlay {
-            NotchExpansionShape(
-                progress: presentation.isExpanded ? 1 : 0,
-                collapsedSize: presentation.collapsedNotchSize
-            )
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+    }
+
+    private func deadlineAlert(_ cue: DeadlineCue) -> some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: 42)
+            HStack(spacing: 15) {
+                ZStack {
+                    Circle()
+                        .fill(cue.urgency.color.opacity(0.12))
+                    Image(systemName: cue.urgency == .overdue ? "exclamationmark" : "clock")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(cue.urgency.color)
+                }
+                .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(cue.urgency.alertTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(cue.urgency.color)
+                    Text(cue.task.title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(deadlineSummary(for: cue.task))
+                        if presentation.additionalDeadlineCount > 0 {
+                            Text("·")
+                            Text("\(presentation.additionalDeadlineCount) more")
+                        }
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                Spacer(minLength: 10)
+                Button(action: onOpenApp) {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Open Quiet Tasks")
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 18)
         }
-        .animation(shellAnimation, value: presentation.isExpanded)
-        .environment(\.locale, Locale(identifier: "en_US"))
+    }
+
+    private func deadlineSummary(for task: TaskItem) -> String {
+        guard let deadline = task.deadline else { return "Deadline approaching" }
+        if task.showsDeadlineTime {
+            return deadline.formatted(.dateTime.month().day().hour().minute().locale(Locale(identifier: "en_US")))
+        }
+        return deadline.formatted(.dateTime.month().day().locale(Locale(identifier: "en_US")))
     }
 
     private var shellAnimation: Animation {
@@ -1104,6 +1169,8 @@ final class OverlayCoordinator {
     private var islandPointerOutsideSince: Date?
     private var deadlineTimer: Timer?
     private var deadlineWaveDismissWorkItem: DispatchWorkItem?
+    private var deadlineIslandShowWorkItem: DispatchWorkItem?
+    private var deadlineIslandDismissWorkItem: DispatchWorkItem?
     private var deliveredDeadlineCues: [String: TimeInterval] = UserDefaults.standard.dictionary(
         forKey: "quietTasks.deliveredDeadlineCues"
     ) as? [String: TimeInterval] ?? [:]
@@ -1147,7 +1214,7 @@ final class OverlayCoordinator {
             else {
                 return
             }
-            Task { @MainActor in self?.showDeadlineWave(urgency: urgency) }
+            Task { @MainActor in self?.showDeadlinePreview(urgency: urgency) }
         }
 #endif
     }
@@ -1155,6 +1222,8 @@ final class OverlayCoordinator {
     func setPaused(_ paused: Bool) {
         isPaused = paused
         if paused {
+            deadlineIslandShowWorkItem?.cancel()
+            deadlineIslandDismissWorkItem?.cancel()
             hideEdgePanel()
             hideIslandPanel()
             hideDeadlineWave()
@@ -1327,6 +1396,10 @@ final class OverlayCoordinator {
         guard !isPaused, let screen = targetScreen else { return }
         islandWorkItem?.cancel()
         islandDismissWorkItem?.cancel()
+        deadlineIslandShowWorkItem?.cancel()
+        deadlineIslandDismissWorkItem?.cancel()
+        islandPresentation.deadlineCue = nil
+        islandPresentation.additionalDeadlineCount = 0
         tasks.reload()
         let width = min(560, screen.frame.width * 0.46)
         let contentHeight = 88 + CGFloat(tasks.openTasks.count) * 84
@@ -1370,17 +1443,23 @@ final class OverlayCoordinator {
 
     private func hideIslandPanel() {
         stopIslandPointerMonitor()
+        deadlineIslandShowWorkItem?.cancel()
+        deadlineIslandDismissWorkItem?.cancel()
         guard let panel = islandPanel, panel.isVisible else { return }
         islandDismissWorkItem?.cancel()
         islandPresentation.isExpanded = false
         islandPresentation.showsContent = false
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             panel.orderOut(nil)
+            islandPresentation.deadlineCue = nil
+            islandPresentation.additionalDeadlineCount = 0
             return
         }
         let item = DispatchWorkItem { [weak self] in
             guard let self, !self.islandPresentation.isExpanded else { return }
             self.islandPanel?.orderOut(nil)
+            self.islandPresentation.deadlineCue = nil
+            self.islandPresentation.additionalDeadlineCount = 0
         }
         islandDismissWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
@@ -1456,7 +1535,7 @@ final class OverlayCoordinator {
         if let testValue = ProcessInfo.processInfo.environment["QUIET_TASKS_TEST_DEADLINE_WAVE"],
            let testUrgency = DeadlineUrgency(testValue: testValue) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                self?.showDeadlineWave(urgency: testUrgency)
+                self?.showDeadlinePreview(urgency: testUrgency)
             }
             return
         }
@@ -1488,8 +1567,7 @@ final class OverlayCoordinator {
             return
         }
 
-        let urgency = pendingCues.map(\.urgency).max() ?? .approaching
-        showDeadlineWave(urgency: urgency)
+        showDeadlineAlert(cues: pendingCues)
         markDeadlineCuesDelivered(pendingCues, at: now)
 
         guard settings.systemNotificationFallback else { return }
@@ -1506,11 +1584,80 @@ final class OverlayCoordinator {
         )
     }
 
+    private func showDeadlineAlert(cues: [DeadlineCue]) {
+        guard !cues.isEmpty else { return }
+        let ordered = cues.sorted { lhs, rhs in
+            if lhs.urgency != rhs.urgency { return lhs.urgency > rhs.urgency }
+            if lhs.task.taskPriority.rank != rhs.task.taskPriority.rank {
+                return lhs.task.taskPriority.rank < rhs.task.taskPriority.rank
+            }
+            return (lhs.task.deadline ?? .distantFuture) < (rhs.task.deadline ?? .distantFuture)
+        }
+        guard let leadingCue = ordered.first else { return }
+        showDeadlineWave(urgency: leadingCue.urgency)
+
+        deadlineIslandShowWorkItem?.cancel()
+        let delay = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.38
+        let item = DispatchWorkItem { [weak self] in
+            self?.showDeadlineIsland(cue: leadingCue, additionalCount: max(0, ordered.count - 1))
+        }
+        deadlineIslandShowWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func showDeadlineIsland(cue: DeadlineCue, additionalCount: Int) {
+        guard !isPaused, let screen = targetScreen else { return }
+        islandDismissWorkItem?.cancel()
+        deadlineIslandDismissWorkItem?.cancel()
+        stopIslandPointerMonitor()
+
+        let width = min(480, screen.frame.width * 0.42)
+        let height: CGFloat = 158
+        let frame = NSRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - height,
+            width: width,
+            height: height
+        )
+
+        if islandPanel == nil {
+            let panel = makeOverlayPanel(frame: frame)
+            panel.level = .mainMenu + 1
+            panel.contentView = NSHostingView(rootView: TaskIslandView(
+                model: tasks,
+                presentation: islandPresentation,
+                onOpenApp: { [weak self] in
+                    self?.openMainApp(schedule: false)
+                    self?.hideIslandPanel()
+                }
+            ))
+            islandPanel = panel
+        }
+        guard let panel = islandPanel else { return }
+        islandPresentation.deadlineCue = cue
+        islandPresentation.additionalDeadlineCount = additionalCount
+        islandPresentation.isExpanded = false
+        islandPresentation.showsContent = false
+        panel.setFrame(frame, display: false)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.islandPanel?.isVisible == true else { return }
+            self.islandPresentation.isExpanded = true
+            self.islandPresentation.showsContent = true
+        }
+
+        let item = DispatchWorkItem { [weak self] in self?.hideIslandPanel() }
+        deadlineIslandDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+    }
+
     private func showDeadlineWave(urgency: DeadlineUrgency) {
         guard let screen = targetScreen, let notchFrame = physicalNotchFrame(on: screen) else { return }
         deadlineWaveDismissWorkItem?.cancel()
-        let width = notchFrame.width + 88
-        let height = notchFrame.height + 64
+        let width = notchFrame.width + 20
+        let height = notchFrame.height + 14
         let frame = NSRect(
             x: notchFrame.midX - width / 2,
             y: screen.frame.maxY - height,
@@ -1534,7 +1681,7 @@ final class OverlayCoordinator {
         panel.setFrame(frame, display: false)
         panel.orderFrontRegardless()
 
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.45 : 1.7
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.32 : 0.9
         let item = DispatchWorkItem { [weak self] in self?.hideDeadlineWave() }
         deadlineWaveDismissWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
@@ -1545,6 +1692,24 @@ final class OverlayCoordinator {
         deadlineWavePresentation.isVisible = false
         deadlineWavePanel?.orderOut(nil)
     }
+
+#if DEBUG
+    private func showDeadlinePreview(urgency: DeadlineUrgency) {
+        let task = TaskItem(
+            id: "DEADLINE-PREVIEW",
+            title: "Finish today’s most important task",
+            deadline: urgency == .overdue ? Date().addingTimeInterval(-900) : Date().addingTimeInterval(1_800),
+            done: false,
+            createdAt: Date(),
+            notes: nil,
+            priority: .high,
+            updatedAt: nil,
+            completedAt: nil,
+            deadlineHasTime: true
+        )
+        showDeadlineAlert(cues: [DeadlineCue(task: task, urgency: urgency, key: "preview")])
+    }
+#endif
 
     private func markDeadlineCuesDelivered(_ cues: [DeadlineCue], at date: Date) {
         for cue in cues {
@@ -1650,6 +1815,16 @@ final class OverlayCoordinator {
         )
         guard frame.width > 0, frame.height > 0 else { return nil }
         return frame
+    }
+}
+
+private extension DeadlineUrgency {
+    var alertTitle: String {
+        switch self {
+        case .approaching: "Coming up"
+        case .urgent: "Due soon"
+        case .overdue: "Overdue"
+        }
     }
 }
 
