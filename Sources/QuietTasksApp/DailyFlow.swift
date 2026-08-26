@@ -753,7 +753,6 @@ private struct TaskIslandView: View {
                 .scrollIndicators(.visible)
             }
         }
-        .drawingGroup(opaque: false, colorMode: .nonLinear)
         .opacity(presentation.showsContent ? 1 : 0)
         .animation(contentAnimation, value: presentation.showsContent)
         .foregroundStyle(.primary)
