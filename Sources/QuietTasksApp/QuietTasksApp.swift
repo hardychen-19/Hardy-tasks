@@ -325,6 +325,7 @@ enum SettingsStore {
 
     private static func normalized(_ settings: AppSettings) -> AppSettings {
         var normalized = settings
+        normalized.appearance = .system
         if normalized.notifications.enabled && normalized.notifications.reminderOffsets.isEmpty {
             normalized.notifications.reminderOffsets = [.oneHour]
         }
@@ -1428,7 +1429,6 @@ struct TaskWorkspaceView: View {
             }
         }
         .frame(minWidth: 880, minHeight: 620)
-        .preferredColorScheme(model.settings.appearance.colorScheme)
     }
 
     private var header: some View {
@@ -1969,8 +1969,6 @@ struct SettingsSheet: View {
             Text("Settings")
                 .font(.title.bold())
 
-            appearanceSection
-            Divider()
             notificationSection
             Divider()
             googleSection
@@ -1993,24 +1991,6 @@ struct SettingsSheet: View {
         }
         .padding(24)
         .frame(width: 560)
-    }
-
-    private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Appearance", systemImage: "circle.lefthalf.filled")
-                .font(.headline)
-
-            Picker("Appearance", selection: $draft.appearance) {
-                ForEach(AppearanceMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: draft.appearance) { _, appearance in
-                model.updateAppearance(appearance)
-            }
-        }
     }
 
     private var notificationSection: some View {
@@ -2138,7 +2118,6 @@ struct SettingsSheet: View {
         if draft.notifications.enabled && draft.notifications.reminderOffsets.isEmpty {
             draft.notifications.reminderOffsets = [.oneHour]
         }
-        model.updateAppearance(draft.appearance)
         model.updateNotificationSettings(draft.notifications)
         model.updateGoogleSettings(draft.googleSync)
     }

@@ -2,19 +2,17 @@
 
 ## Direction
 
-Black Monolith with Tidal Time: the notch becomes a continuous black task surface; the left edge reveals a translucent day instrument organized by time rather than cards.
+Native macOS utility: the notch and left edge use the same semantic system surface, system typography, SF Symbols, standard selection states, and restrained hierarchy. The product follows the current macOS light or dark appearance automatically.
 
 ## Color
 
-- Notch Black: `#050607` — notch continuity and deepest surface.
-- Graphite: `#15191D` — primary translucent panel material.
-- Deep Lake Blue: `#195A73` — selected and focused states.
-- Clear Water Cyan: `#55C5C8` — current time, completion feedback, and primary focus.
-- Mist White: `#F2F6F7` — primary text.
-- Secondary text: Mist White at 62–72% opacity, adjusted to maintain contrast.
-- Danger: system red; warning: system orange. Color never replaces a text or symbol cue.
+- Surface: macOS `windowBackgroundColor` for both floating surfaces so the wallpaper or underlying window cannot tint them differently.
+- Text: semantic `primary`, `secondary`, and label colors.
+- Accent: the user's macOS accent color for current time, selection, links, and focus only.
+- Dividers: macOS `separatorColor`.
+- Danger and warning: macOS semantic red and orange. Color never replaces a text or symbol cue.
 
-No gradients. Frosted material is functional separation, not decoration.
+No gradients and no fixed light/dark palette. Appearance always follows macOS.
 
 ## Typography
 
@@ -35,7 +33,7 @@ Use a 4-point base scale: 4, 8, 12, 16, 24, 32, 48. Related metadata stays withi
 ## Surfaces
 
 - Edge schedule: 388 points wide and exactly fills the usable height between the menu bar and Dock. It never crosses either system region. The time axis preserves true position while compact event rows use collision-safe spacing and single-line truncation.
-- Notch task surface: 600 points wide by up to 480 points high, centered on the built-in display notch. Its top edge visually merges with the notch; lower corners are 14 points.
+- Notch task surface: 600 points wide, with height derived from unfinished task count between 240 and 500 points. It is centered on the built-in display notch; lower corners are 14 points.
 - Main app: week-first schedule workspace with a task sidebar; familiar macOS toolbar and sheets.
 
 Avoid nested cards. Rows are grouped with alignment, rhythm, and hairlines only.

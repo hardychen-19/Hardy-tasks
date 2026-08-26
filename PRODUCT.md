@@ -18,6 +18,8 @@ Quiet Tasks combines two intentionally separate local systems. The schedule answ
 
 The main schedule and task workspaces use the same native split-view grammar. Switching between them must preserve navigation density and spatial orientation instead of jumping between unrelated shells.
 
+All product chrome is English. User-authored schedule and task content is preserved verbatim in its original language. Appearance follows the macOS system setting; the app does not expose a competing theme override.
+
 ## Positioning
 
 A native macOS day compass and task surface that appears exactly where attention already travels: the screen edge for time and the notch for action.

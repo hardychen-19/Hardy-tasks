@@ -127,9 +127,9 @@ private enum ScheduleViewFilter: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .today: "今天"
-        case .week: "本周"
-        case .upcoming: "全部日程"
+        case .today: "Today"
+        case .week: "This Week"
+        case .upcoming: "All Schedules"
         }
     }
 
@@ -148,11 +148,11 @@ struct RootWorkspaceView: View {
     var body: some View {
         TabView(selection: $selection) {
             ScheduleWorkspaceView()
-                .tabItem { Label("日程", systemImage: "calendar.day.timeline.left") }
+                .tabItem { Label("Schedule", systemImage: "calendar.day.timeline.left") }
                 .tag(WorkspaceSection.schedule)
 
             TaskWorkspaceView()
-                .tabItem { Label("待办", systemImage: "checklist") }
+                .tabItem { Label("Tasks", systemImage: "checklist") }
                 .tag(WorkspaceSection.tasks)
         }
         .onReceive(NotificationCenter.default.publisher(for: .quietTasksOpenSchedule)) { _ in
@@ -161,7 +161,7 @@ struct RootWorkspaceView: View {
         .onOpenURL { _ in
             NotificationCenter.default.post(name: .quietTasksScheduleChanged, object: nil)
         }
-        .environment(\.locale, Locale(identifier: "zh_CN"))
+        .environment(\.locale, Locale(identifier: "en_US"))
         .frame(minWidth: 980, minHeight: 680)
     }
 }
@@ -190,18 +190,18 @@ struct ScheduleWorkspaceView: View {
                     }
                 }
 
-                Section("概览") {
+                Section("Overview") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("今天 \(model.items(on: Date()).count) 项")
+                        Text("\(model.items(on: Date()).count) today")
                             .font(.headline)
-                        Text("本周 \(weekItemCount) 项")
+                        Text("\(weekItemCount) this week")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                 }
             }
-            .navigationTitle("日程")
+            .navigationTitle("Schedule")
             .frame(minWidth: 220)
         } detail: {
             VStack(spacing: 0) {
@@ -258,15 +258,15 @@ struct ScheduleWorkspaceView: View {
             Spacer()
             if selectedView == .week {
                 Button { moveWeek(-1) } label: { Image(systemName: "chevron.left") }
-                    .help("上一周")
-                Button("今天") { weekAnchor = Date() }
+                    .help("Previous Week")
+                Button("Today") { weekAnchor = Date() }
                 Button { moveWeek(1) } label: { Image(systemName: "chevron.right") }
-                    .help("下一周")
+                    .help("Next Week")
             }
             Button {
                 showingNewItem = true
             } label: {
-                Label("新建日程", systemImage: "plus")
+                Label("New Schedule", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -295,13 +295,13 @@ struct ScheduleWorkspaceView: View {
         case .today:
             ScheduleAgendaList(
                 items: model.items(on: Date()),
-                emptyText: "今天没有日程",
+                emptyText: "No schedules today",
                 onEdit: { editingItem = $0 }
             )
         case .upcoming:
             ScheduleAgendaList(
                 items: model.items.filter { $0.endAt >= Calendar.current.startOfDay(for: Date()) },
-                emptyText: "没有未来日程",
+                emptyText: "No upcoming schedules",
                 showsDate: true,
                 onEdit: { editingItem = $0 }
             )
@@ -319,17 +319,17 @@ struct ScheduleWorkspaceView: View {
     private var headerSubtitle: String {
         switch selectedView {
         case .today:
-            Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "zh_CN")))
+            Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "en_US")))
         case .week:
             weekRangeText
         case .upcoming:
-            "按时间顺序查看未来安排"
+            "Upcoming schedules in chronological order"
         }
     }
 
     private var weekRangeText: String {
         guard let first = weekDays.first, let last = weekDays.last else { return "" }
-        let style = Date.FormatStyle.dateTime.month().day().locale(Locale(identifier: "zh_CN"))
+        let style = Date.FormatStyle.dateTime.month().day().locale(Locale(identifier: "en_US"))
         return "\(first.formatted(style)) – \(last.formatted(style))"
     }
 
@@ -346,10 +346,10 @@ private struct ScheduleDayColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "zh_CN"))))
+                Text(date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "en_US"))))
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Calendar.current.isDateInToday(date) ? Color.qtCyan : .secondary)
-                Text(date.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN"))))
+                    .foregroundStyle(Calendar.current.isDateInToday(date) ? Color.accentColor : .secondary)
+                Text(date.formatted(.dateTime.month().day().locale(Locale(identifier: "en_US"))))
                     .font(.system(size: 22, weight: .semibold))
             }
             .padding(16)
@@ -357,7 +357,7 @@ private struct ScheduleDayColumn: View {
             Divider()
 
             if items.isEmpty {
-                Text("没有日程")
+                Text("No schedules")
                     .font(.system(size: 13))
                     .foregroundStyle(.tertiary)
                     .padding(16)
@@ -374,7 +374,7 @@ private struct ScheduleDayColumn: View {
             }
             Spacer(minLength: 16)
         }
-        .background(Calendar.current.isDateInToday(date) ? Color.qtCyan.opacity(0.035) : .clear)
+        .background(Calendar.current.isDateInToday(date) ? Color.accentColor.opacity(0.055) : .clear)
     }
 }
 
@@ -385,12 +385,12 @@ private struct ScheduleWorkspaceRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(item.startAt.formatted(date: .omitted, time: .shortened))
                 .font(.system(size: 15, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.qtCyan)
+                .foregroundStyle(.tint)
             Text(item.title)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-            Text("至 \(item.endAt.formatted(date: .omitted, time: .shortened))")
+            Text("Until \(item.endAt.formatted(date: .omitted, time: .shortened))")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
@@ -417,12 +417,12 @@ private struct ScheduleAgendaList: View {
                             HStack(alignment: .firstTextBaseline, spacing: 20) {
                                 VStack(alignment: .trailing, spacing: 4) {
                                     if showsDate {
-                                        Text(item.startAt.formatted(.dateTime.month().day().weekday(.abbreviated).locale(Locale(identifier: "zh_CN"))))
+                                        Text(item.startAt.formatted(.dateTime.month().day().weekday(.abbreviated).locale(Locale(identifier: "en_US"))))
                                             .font(.system(size: 12, weight: .medium))
                                     }
                                     Text(item.startAt.formatted(date: .omitted, time: .shortened))
                                         .font(.system(size: 15, design: .monospaced))
-                                        .foregroundStyle(Color.qtCyan)
+                                        .foregroundStyle(.tint)
                                 }
                                 .frame(width: showsDate ? 112 : 68, alignment: .trailing)
 
@@ -430,7 +430,7 @@ private struct ScheduleAgendaList: View {
                                     Text(item.title)
                                         .font(.system(size: 16, weight: .medium))
                                         .lineLimit(2)
-                                    Text("至 \(item.endAt.formatted(date: .omitted, time: .shortened))")
+                                    Text("Until \(item.endAt.formatted(date: .omitted, time: .shortened))")
                                         .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
                                 }
@@ -485,31 +485,31 @@ private struct ScheduleEditSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(item == nil ? "新建日程" : "编辑日程")
+            Text(item == nil ? "New Schedule" : "Edit Schedule")
                 .font(.system(size: 24, weight: .semibold))
 
             Form {
-                TextField("事项", text: $title)
-                DatePicker("开始", selection: $startAt)
-                DatePicker("结束", selection: $endAt, in: startAt...)
-                TextField("备注", text: $notes, axis: .vertical)
+                TextField("Title", text: $title)
+                DatePicker("Starts", selection: $startAt)
+                DatePicker("Ends", selection: $endAt, in: startAt...)
+                TextField("Notes", text: $notes, axis: .vertical)
                     .lineLimit(3...5)
             }
 
             if endAt <= startAt {
-                Text("结束时间必须晚于开始时间。")
+                Text("The end time must be later than the start time.")
                     .font(.system(size: 13))
                     .foregroundStyle(.red)
             }
 
             HStack {
                 if let onDelete {
-                    Button("删除", role: .destructive, action: onDelete)
+                    Button("Delete", role: .destructive, action: onDelete)
                 }
                 Spacer()
-                Button("取消", action: onCancel)
+                Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("保存") { onSave(title, startAt, endAt, notes) }
+                Button("Save") { onSave(title, startAt, endAt, notes) }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || endAt <= startAt)
@@ -521,14 +521,6 @@ private struct ScheduleEditSheet: View {
 }
 
 // MARK: - Floating surfaces
-
-extension Color {
-    static let qtNotchBlack = Color(red: 5 / 255, green: 6 / 255, blue: 7 / 255)
-    static let qtGraphite = Color(red: 21 / 255, green: 25 / 255, blue: 29 / 255)
-    static let qtLakeBlue = Color(red: 25 / 255, green: 90 / 255, blue: 115 / 255)
-    static let qtCyan = Color(red: 85 / 255, green: 197 / 255, blue: 200 / 255)
-    static let qtMist = Color(red: 242 / 255, green: 246 / 255, blue: 247 / 255)
-}
 
 private struct DayEdgePanelView: View {
     @ObservedObject var model: ScheduleModel
@@ -543,17 +535,17 @@ private struct DayEdgePanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("今天")
+                    Text("Today")
                         .font(.system(size: 32, weight: .regular))
-                        .foregroundStyle(Color.qtMist)
-                    Text(Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "zh_CN"))))
+                        .foregroundStyle(.primary)
+                    Text(Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "en_US"))))
                         .font(.system(size: 13))
-                        .foregroundStyle(Color.qtMist.opacity(0.64))
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(now.formatted(date: .omitted, time: .shortened))
                     .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.qtCyan)
+                    .foregroundStyle(.tint)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -564,20 +556,19 @@ private struct DayEdgePanelView: View {
 
             Button(action: onOpenSchedule) {
                 HStack {
-                    Text("查看本周")
+                    Text("View This Week")
                     Spacer()
                     Image(systemName: "arrow.up.right")
                 }
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color.qtCyan)
+                .foregroundStyle(.tint)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .background(.ultraThinMaterial)
-        .background(Color.qtGraphite.opacity(0.82))
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: 0,
@@ -585,10 +576,9 @@ private struct DayEdgePanelView: View {
             topTrailingRadius: 14
         ))
         .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
         }
-        .environment(\.colorScheme, .dark)
-        .environment(\.locale, Locale(identifier: "zh_CN"))
+        .environment(\.locale, Locale(identifier: "en_US"))
         .onHover(perform: onHover)
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now = $0 }
     }
@@ -602,16 +592,16 @@ private struct DayEdgePanelView: View {
                     path.move(to: CGPoint(x: 70, y: 12))
                     path.addLine(to: CGPoint(x: 70, y: height + 12))
                 }
-                .stroke(Color.qtMist.opacity(0.22), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
 
                 ForEach(dayStartHour...dayEndHour, id: \.self) { hour in
                     let y = hourY(hour, height: height) + 12
                     Text(String(format: "%02d:00", hour))
                         .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.qtMist.opacity(0.46))
+                        .foregroundStyle(.secondary)
                         .position(x: 30, y: y)
                     Circle()
-                        .fill(Color.qtMist.opacity(0.24))
+                        .fill(Color(nsColor: .tertiaryLabelColor))
                         .frame(width: 5, height: 5)
                         .position(x: 70, y: y)
                 }
@@ -620,23 +610,23 @@ private struct DayEdgePanelView: View {
                     let y = collisionSafeY(index: index, items: todayItems, height: height) + 10
                     HStack(alignment: .top, spacing: 12) {
                         Circle()
-                            .fill(isCurrent(item) ? Color.qtCyan : Color.qtLakeBlue)
+                            .fill(isCurrent(item) ? Color.accentColor : Color(nsColor: .secondaryLabelColor))
                             .frame(width: 9, height: 9)
                             .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(timeRange(item))
                                 .font(.system(size: 13, weight: .medium, design: .monospaced))
-                                .foregroundStyle(isCurrent(item) ? Color.qtCyan : Color.qtMist.opacity(0.66))
+                                .foregroundStyle(isCurrent(item) ? Color.accentColor : Color.secondary)
                             Text(item.title)
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Color.qtMist)
+                                .foregroundStyle(.primary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
                     }
                     .frame(width: 266, height: 42, alignment: .leading)
                     .padding(.horizontal, isCurrent(item) ? 12 : 0)
-                    .background(isCurrent(item) ? Color.qtLakeBlue.opacity(0.24) : .clear)
+                    .background(isCurrent(item) ? Color.accentColor.opacity(0.12) : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .position(x: 214, y: y)
                 }
@@ -644,14 +634,14 @@ private struct DayEdgePanelView: View {
                 if isWithinTimeline(now) {
                     let y = dateY(now, height: height) + 12
                     Rectangle()
-                        .fill(Color.qtCyan.opacity(0.76))
+                        .fill(Color.accentColor.opacity(0.78))
                         .frame(height: 1)
                         .position(x: geometry.size.width / 2, y: y)
                     Text(now.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.qtCyan)
+                        .foregroundStyle(.tint)
                         .padding(.horizontal, 6)
-                        .background(Color.qtGraphite)
+                        .background(Color(nsColor: .controlBackgroundColor))
                         .position(x: 34, y: y)
                 }
             }
@@ -707,36 +697,36 @@ private struct TaskIslandView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("待完成")
+                Text("To Do")
                     .font(.system(size: 21, weight: .semibold))
-                Text("\(model.openTasks.count) 项")
+                Text("\(model.openTasks.count) items")
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.qtCyan)
+                    .foregroundStyle(.tint)
                 Spacer()
                 Button(action: onOpenApp) {
                     Image(systemName: "arrow.up.right")
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.qtCyan)
-                .help("打开 Quiet Tasks")
+                .foregroundStyle(.tint)
+                .help("Open Quiet Tasks")
             }
             .padding(.horizontal, 28)
             .padding(.top, 52)
             .padding(.bottom, 16)
 
-            Divider().overlay(Color.qtMist.opacity(0.10))
+            Divider()
 
             if model.openTasks.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(Color.qtCyan)
-                    Text("今天已经清空")
+                        .foregroundStyle(.tint)
+                    Text("All Clear")
                         .font(.system(size: 16, weight: .medium))
-                    Text("新的待办会自动出现在这里。")
+                    Text("New tasks will appear here automatically.")
                         .font(.system(size: 13))
-                        .foregroundStyle(Color.qtMist.opacity(0.58))
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -750,7 +740,7 @@ private struct TaskIslandView: View {
                             }
                             .transition(.opacity)
                             if task.id != model.openTasks.last?.id {
-                                Divider().overlay(Color.qtMist.opacity(0.08)).padding(.leading, 76)
+                                Divider().padding(.leading, 76)
                             }
                         }
                     }
@@ -758,15 +748,14 @@ private struct TaskIslandView: View {
                 .scrollIndicators(.visible)
             }
         }
-        .foregroundStyle(Color.qtMist)
-        .background(Color.qtNotchBlack.opacity(0.98))
+        .foregroundStyle(.primary)
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(NotchIslandShape())
         .overlay {
             NotchIslandShape()
-            .stroke(Color.qtMist.opacity(0.07), lineWidth: 1)
+            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
-        .environment(\.colorScheme, .dark)
-        .environment(\.locale, Locale(identifier: "zh_CN"))
+        .environment(\.locale, Locale(identifier: "en_US"))
         .onHover(perform: onHover)
     }
 }
@@ -819,18 +808,18 @@ private struct TaskIslandRow: View {
             Button(action: complete) {
                 ZStack {
                     Circle()
-                        .stroke(Color.qtMist.opacity(hovering ? 0.84 : 0.52), lineWidth: 1.5)
+                        .stroke(hovering ? Color.primary : Color.secondary, lineWidth: 1.5)
                     if hovering {
                         Image(systemName: "checkmark")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.qtCyan)
+                            .foregroundStyle(.tint)
                     }
                 }
                 .frame(width: 28, height: 28)
                 .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("完成")
+            .help("Complete")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
@@ -847,13 +836,13 @@ private struct TaskIslandRow: View {
                     }
                 }
                 .font(.system(size: 12))
-                .foregroundStyle(Color.qtMist.opacity(0.52))
+                .foregroundStyle(.secondary)
             }
             .layoutPriority(1)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 16)
-        .background(hovering ? Color.qtLakeBlue.opacity(0.16) : .clear)
+        .background(hovering ? Color.accentColor.opacity(0.10) : .clear)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }
@@ -864,13 +853,13 @@ private struct TaskIslandRow: View {
             Text(deadline.formatted(.dateTime
                 .month().day()
                 .hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits)
-                .locale(Locale(identifier: "zh_CN"))))
+                .locale(Locale(identifier: "en_US"))))
             .font(.system(size: 12, design: .monospaced))
             .lineLimit(1)
         } else {
             Text(deadline.formatted(.dateTime
                 .month().day()
-                .locale(Locale(identifier: "zh_CN"))))
+                .locale(Locale(identifier: "en_US"))))
             .font(.system(size: 12, design: .monospaced))
             .lineLimit(1)
         }
@@ -1068,7 +1057,8 @@ final class OverlayCoordinator {
         islandWorkItem?.cancel()
         tasks.reload()
         let width = min(640, screen.frame.width * 0.54)
-        let height = min(500, screen.visibleFrame.height * 0.56)
+        let contentHeight = 118 + CGFloat(tasks.openTasks.count) * 84
+        let height = min(500, max(240, contentHeight))
         let finalFrame = NSRect(
             x: screen.frame.midX - width / 2,
             y: screen.frame.maxY - height,
@@ -1188,18 +1178,18 @@ final class QuietTasksAppDelegate: NSObject, NSApplicationDelegate {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Quiet Tasks")
         let menu = NSMenu()
-        menu.addItem(withTitle: "打开 Quiet Tasks", action: #selector(openApp), keyEquivalent: "")
-        menu.addItem(withTitle: "查看本周日程", action: #selector(openSchedule), keyEquivalent: "")
+        menu.addItem(withTitle: "Open Quiet Tasks", action: #selector(openApp), keyEquivalent: "")
+        menu.addItem(withTitle: "View This Week", action: #selector(openSchedule), keyEquivalent: "")
         menu.addItem(.separator())
-        let pause = NSMenuItem(title: "暂停边缘触发", action: #selector(togglePause), keyEquivalent: "")
+        let pause = NSMenuItem(title: "Pause Edge Triggers", action: #selector(togglePause), keyEquivalent: "")
         menu.addItem(pause)
         pauseMenuItem = pause
-        let login = NSMenuItem(title: "登录时启动", action: #selector(toggleLoginItem), keyEquivalent: "")
+        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLoginItem), keyEquivalent: "")
         menu.addItem(login)
         loginMenuItem = login
         updateLoginMenuState()
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem.menu = menu
         self.statusItem = statusItem
     }
