@@ -22,7 +22,7 @@ All product chrome is English. User-authored schedule and task content is preser
 
 ## Positioning
 
-A native macOS day compass and task surface that appears exactly where attention already travels: the screen edge for time and the notch for action.
+A native macOS day compass and task surface that appears exactly where attention already travels: the screen edge for time and a conventional rounded task panel revealed from the notch for action.
 
 ## Brand Personality
 
@@ -35,7 +35,7 @@ Do not resemble a card-heavy dashboard, a phone-shaped Dynamic Island demo, a ma
 ## Design Principles
 
 - Keep schedule and tasks semantically and visually separate.
-- Reveal on intent, disappear without residue.
+- Reveal the task panel only after the pointer reaches the notch trigger; keep it visible only while the pointer remains inside the trigger or panel, then disappear without residue.
 - Let time and typography form the layout before adding containers.
 - Use motion to preserve spatial relationships: edge to panel, notch to task surface, task to completion.
 - Preserve local ownership, existing task data, and reversible installation.

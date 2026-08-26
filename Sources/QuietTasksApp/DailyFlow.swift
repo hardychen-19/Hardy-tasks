@@ -691,7 +691,6 @@ private struct DayEdgePanelView: View {
 
 private struct TaskIslandView: View {
     @ObservedObject var model: TaskModel
-    let onHover: (Bool) -> Void
     let onOpenApp: () -> Void
 
     var body: some View {
@@ -712,7 +711,7 @@ private struct TaskIslandView: View {
                 .help("Open Quiet Tasks")
             }
             .padding(.horizontal, 28)
-            .padding(.top, 52)
+            .padding(.top, 20)
             .padding(.bottom, 16)
 
             Divider()
@@ -750,51 +749,12 @@ private struct TaskIslandView: View {
         }
         .foregroundStyle(.primary)
         .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(NotchIslandShape())
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            NotchIslandShape()
-            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
         .environment(\.locale, Locale(identifier: "en_US"))
-        .onHover(perform: onHover)
-    }
-}
-
-private struct NotchIslandShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let notchWidth = min(224, rect.width * 0.42)
-        let shoulderHeight: CGFloat = 44
-        let corner: CGFloat = 14
-        let center = rect.midX
-        var path = Path()
-
-        path.move(to: CGPoint(x: center - notchWidth / 2, y: 0))
-        path.addLine(to: CGPoint(x: center + notchWidth / 2, y: 0))
-        path.addCurve(
-            to: CGPoint(x: center + notchWidth / 2 + 54, y: shoulderHeight),
-            control1: CGPoint(x: center + notchWidth / 2 + 18, y: 0),
-            control2: CGPoint(x: center + notchWidth / 2 + 24, y: shoulderHeight)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: shoulderHeight))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - corner))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - corner, y: rect.maxY),
-            control: CGPoint(x: rect.maxX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: rect.minX + corner, y: rect.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - corner),
-            control: CGPoint(x: rect.minX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: rect.minX, y: shoulderHeight))
-        path.addLine(to: CGPoint(x: center - notchWidth / 2 - 54, y: shoulderHeight))
-        path.addCurve(
-            to: CGPoint(x: center - notchWidth / 2, y: 0),
-            control1: CGPoint(x: center - notchWidth / 2 - 24, y: shoulderHeight),
-            control2: CGPoint(x: center - notchWidth / 2 - 18, y: 0)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -903,6 +863,8 @@ final class OverlayCoordinator {
     private var islandPanel: OverlayPanel?
     private var edgeWorkItem: DispatchWorkItem?
     private var islandWorkItem: DispatchWorkItem?
+    private var islandPointerTimer: Timer?
+    private var islandPointerOutsideSince: Date?
     private(set) var isPaused = false
 
     func start() {
@@ -948,17 +910,17 @@ final class OverlayCoordinator {
         // The physical notch itself is not a pointer-addressable area. The trigger
         // therefore includes the slim shoulder directly below it so the gesture
         // still feels like hovering the notch instead of hunting for a pixel.
-        let notchWidth: CGFloat = min(340, screen.frame.width * 0.24)
+        let notchWidth: CGFloat = min(224, screen.frame.width * 0.16)
         let notchFrame = NSRect(
             x: screen.frame.midX - notchWidth / 2,
-            y: screen.frame.maxY - 64,
+            y: screen.frame.maxY - 42,
             width: notchWidth,
-            height: 64
+            height: 14
         )
         notchTrigger = makeTrigger(frame: notchFrame, enter: { [weak self] in
             self?.scheduleIslandShow()
         }, exit: { [weak self] in
-            self?.scheduleIslandHide()
+            self?.cancelPendingIslandShow()
         })
     }
 
@@ -1000,14 +962,12 @@ final class OverlayCoordinator {
         islandWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.showIslandPanel() }
         islandWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: item)
     }
 
-    private func scheduleIslandHide() {
+    private func cancelPendingIslandShow() {
+        guard islandPanel?.isVisible != true else { return }
         islandWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.hideIslandPanel() }
-        islandWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
     }
 
     private func showEdgePanel() {
@@ -1056,25 +1016,23 @@ final class OverlayCoordinator {
         guard !isPaused, let screen = targetScreen else { return }
         islandWorkItem?.cancel()
         tasks.reload()
-        let width = min(640, screen.frame.width * 0.54)
-        let contentHeight = 118 + CGFloat(tasks.openTasks.count) * 84
+        let width = min(560, screen.frame.width * 0.46)
+        let contentHeight = 88 + CGFloat(tasks.openTasks.count) * 84
         let height = min(500, max(240, contentHeight))
+        let menuBarOverlap: CGFloat = 8
         let finalFrame = NSRect(
             x: screen.frame.midX - width / 2,
-            y: screen.frame.maxY - height,
+            y: screen.frame.maxY - menuBarOverlap - height,
             width: width,
             height: height
         )
-        let startFrame = finalFrame.offsetBy(dx: 0, dy: 20)
+        let startFrame = finalFrame.offsetBy(dx: 0, dy: 14)
 
         if islandPanel == nil {
             let panel = makeOverlayPanel(frame: startFrame)
             panel.level = .mainMenu + 1
             panel.contentView = NSHostingView(rootView: TaskIslandView(
                 model: tasks,
-                onHover: { [weak self] inside in
-                    inside ? self?.islandWorkItem?.cancel() : self?.scheduleIslandHide()
-                },
                 onOpenApp: { [weak self] in
                     self?.openMainApp(schedule: false)
                     self?.hideIslandPanel()
@@ -1087,13 +1045,52 @@ final class OverlayCoordinator {
         islandPanel.alphaValue = 0
         islandPanel.orderFrontRegardless()
         animate(islandPanel, to: finalFrame, alpha: 1, duration: 0.18)
+        startIslandPointerMonitor()
     }
 
     private func hideIslandPanel() {
+        stopIslandPointerMonitor()
         guard let panel = islandPanel, panel.isVisible else { return }
-        guard !panel.frame.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) else { return }
-        let target = panel.frame.offsetBy(dx: 0, dy: 16)
+        let target = panel.frame.offsetBy(dx: 0, dy: 12)
         animate(panel, to: target, alpha: 0, duration: 0.14) { panel.orderOut(nil) }
+    }
+
+    private func startIslandPointerMonitor() {
+        stopIslandPointerMonitor()
+        let timer = Timer(timeInterval: 0.06, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.evaluateIslandPointer() }
+        }
+        islandPointerTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopIslandPointerMonitor() {
+        islandPointerTimer?.invalidate()
+        islandPointerTimer = nil
+        islandPointerOutsideSince = nil
+    }
+
+    private func evaluateIslandPointer() {
+        guard let panel = islandPanel, panel.isVisible else {
+            stopIslandPointerMonitor()
+            return
+        }
+
+        let pointer = NSEvent.mouseLocation
+        let isInsidePanel = panel.frame.insetBy(dx: -4, dy: -4).contains(pointer)
+        let isInsideTrigger = notchTrigger?.frame.contains(pointer) == true
+        if isInsidePanel || isInsideTrigger {
+            islandPointerOutsideSince = nil
+            return
+        }
+
+        if let outsideSince = islandPointerOutsideSince {
+            if Date().timeIntervalSince(outsideSince) >= 0.14 {
+                hideIslandPanel()
+            }
+        } else {
+            islandPointerOutsideSince = Date()
+        }
     }
 
     private func makeOverlayPanel(frame: NSRect) -> OverlayPanel {

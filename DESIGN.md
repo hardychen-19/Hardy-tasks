@@ -33,7 +33,7 @@ Use a 4-point base scale: 4, 8, 12, 16, 24, 32, 48. Related metadata stays withi
 ## Surfaces
 
 - Edge schedule: 388 points wide and exactly fills the usable height between the menu bar and Dock. It never crosses either system region. The time axis preserves true position while compact event rows use collision-safe spacing and single-line truncation.
-- Notch task surface: 600 points wide, with height derived from unfinished task count between 240 and 500 points. It is centered on the built-in display notch; lower corners are 14 points.
+- Notch task surface: a conventional 560-point-wide macOS floating rectangle, with height derived from unfinished task count between 240 and 500 points. It is centered below the built-in display notch, uses 16-point continuous corners on every edge, and overlaps the menu bar by only 8 points. The collapsed hit target is limited to a 224 × 14 point strip immediately below the notch so it does not obstruct unrelated menu bar controls.
 - Main app: week-first schedule workspace with a task sidebar; familiar macOS toolbar and sheets.
 
 Avoid nested cards. Rows are grouped with alignment, rhythm, and hairlines only.
@@ -41,7 +41,7 @@ Avoid nested cards. Rows are grouped with alignment, rhythm, and hairlines only.
 ## Motion
 
 - Edge activation delay: about 250 ms. Enter: 200 ms short-distance slide/fade; exit: 150 ms after a 350 ms hover bridge.
-- Notch expansion: 180 ms short-distance slide/fade with a pre-laid-out fixed-size surface. Do not animate window height or stagger task rows.
+- Notch expansion: 180 ms short-distance slide/fade with a pre-laid-out fixed-size surface. A single pointer-boundary monitor keeps it open while the pointer is inside the trigger or panel and begins a 140 ms dismissal bridge immediately after the pointer leaves both. Do not animate window height or stagger task rows.
 - Task completion: immediate check response, 180 ms compression/crossfade, then persistence.
 - Do not use gradients or fade masks. Overflow uses the native scroll indicator.
 - Reduce Motion: no spring, no stagger, no scale; use 120–160 ms opacity transitions.
