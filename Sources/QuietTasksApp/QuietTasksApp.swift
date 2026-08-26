@@ -1337,6 +1337,7 @@ struct TaskWorkspaceView: View {
                     .padding(28)
                 }
             }
+            .workspaceContentSurface()
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search tasks")
         .toolbar {

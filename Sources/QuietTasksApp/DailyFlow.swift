@@ -209,7 +209,7 @@ struct ScheduleWorkspaceView: View {
                 Divider()
                 detailContent
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+            .workspaceContentSurface()
         }
         .sheet(isPresented: $showingNewItem) {
             ScheduleEditSheet(
@@ -691,6 +691,7 @@ private struct DayEdgePanelView: View {
 private final class TaskIslandPresentation: ObservableObject {
     @Published var isExpanded = false
     @Published var showsContent = false
+    @Published var collapsedNotchSize = CGSize(width: 224, height: 34)
 }
 
 private struct TaskIslandView: View {
@@ -757,9 +758,15 @@ private struct TaskIslandView: View {
         .animation(contentAnimation, value: presentation.showsContent)
         .foregroundStyle(.primary)
         .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(NotchExpansionShape(progress: presentation.isExpanded ? 1 : 0))
+        .clipShape(NotchExpansionShape(
+            progress: presentation.isExpanded ? 1 : 0,
+            collapsedSize: presentation.collapsedNotchSize
+        ))
         .overlay {
-            NotchExpansionShape(progress: presentation.isExpanded ? 1 : 0)
+            NotchExpansionShape(
+                progress: presentation.isExpanded ? 1 : 0,
+                collapsedSize: presentation.collapsedNotchSize
+            )
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
         .animation(shellAnimation, value: presentation.isExpanded)
@@ -785,6 +792,7 @@ private struct TaskIslandView: View {
 
 private struct NotchExpansionShape: Shape {
     var progress: CGFloat
+    let collapsedSize: CGSize
 
     var animatableData: CGFloat {
         get { progress }
@@ -793,8 +801,8 @@ private struct NotchExpansionShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let value = min(max(progress, 0), 1)
-        let collapsedWidth = min(224, rect.width * 0.48)
-        let collapsedHeight: CGFloat = 34
+        let collapsedWidth = min(collapsedSize.width, rect.width)
+        let collapsedHeight = min(collapsedSize.height, rect.height)
         let width = collapsedWidth + (rect.width - collapsedWidth) * value
         let height = collapsedHeight + (rect.height - collapsedHeight) * value
         let bounds = CGRect(
@@ -987,16 +995,8 @@ final class OverlayCoordinator {
             self?.cancelPendingEdgeShow()
         })
 
-        // The physical notch itself is not a pointer-addressable area. The trigger
-        // therefore includes the slim shoulder directly below it so the gesture
-        // still feels like hovering the notch instead of hunting for a pixel.
-        let notchWidth: CGFloat = min(224, screen.frame.width * 0.16)
-        let notchFrame = NSRect(
-            x: screen.frame.midX - notchWidth / 2,
-            y: screen.frame.maxY - 42,
-            width: notchWidth,
-            height: 42
-        )
+        guard let notchFrame = physicalNotchFrame(on: screen) else { return }
+        islandPresentation.collapsedNotchSize = notchFrame.size
         notchTrigger = makeTrigger(frame: notchFrame, enter: { [weak self] in
             self?.scheduleIslandShow()
         }, exit: { [weak self] in
@@ -1285,6 +1285,31 @@ final class OverlayCoordinator {
 
     private var targetScreen: NSScreen? {
         NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func physicalNotchFrame(on screen: NSScreen) -> NSRect? {
+        guard let leftShoulder = screen.auxiliaryTopLeftArea,
+              let rightShoulder = screen.auxiliaryTopRightArea,
+              leftShoulder.maxX < rightShoulder.minX
+        else {
+            return nil
+        }
+
+        let bottom = max(leftShoulder.minY, rightShoulder.minY)
+        let frame = NSRect(
+            x: leftShoulder.maxX,
+            y: bottom,
+            width: rightShoulder.minX - leftShoulder.maxX,
+            height: screen.frame.maxY - bottom
+        )
+        guard frame.width > 0, frame.height > 0 else { return nil }
+        return frame
+    }
+}
+
+extension View {
+    func workspaceContentSurface() -> some View {
+        background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
