@@ -118,6 +118,30 @@ private enum WorkspaceSection: Hashable {
     case tasks
 }
 
+private enum ScheduleViewFilter: String, CaseIterable, Identifiable {
+    case today
+    case week
+    case upcoming
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .today: "今天"
+        case .week: "本周"
+        case .upcoming: "全部日程"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .today: "sun.max"
+        case .week: "calendar"
+        case .upcoming: "list.bullet"
+        }
+    }
+}
+
 struct RootWorkspaceView: View {
     @State private var selection: WorkspaceSection = .schedule
 
@@ -144,6 +168,7 @@ struct RootWorkspaceView: View {
 
 struct ScheduleWorkspaceView: View {
     @StateObject private var model = ScheduleModel()
+    @State private var selectedView: ScheduleViewFilter = .week
     @State private var weekAnchor = Date()
     @State private var editingItem: ScheduleItem?
     @State private var showingNewItem = false
@@ -156,25 +181,36 @@ struct ScheduleWorkspaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(weekDays, id: \.self) { day in
-                        ScheduleDayColumn(
-                            date: day,
-                            items: model.items(on: day),
-                            onEdit: { editingItem = $0 }
-                        )
-                        .frame(width: 220)
-                        if day != weekDays.last { Divider() }
+        NavigationSplitView {
+            List(selection: $selectedView) {
+                Section("Views") {
+                    ForEach(ScheduleViewFilter.allCases) { filter in
+                        Label(filter.title, systemImage: filter.symbol)
+                            .tag(filter)
                     }
                 }
-                .frame(minHeight: 560, alignment: .top)
+
+                Section("概览") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("今天 \(model.items(on: Date()).count) 项")
+                            .font(.headline)
+                        Text("本周 \(weekItemCount) 项")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
+            .navigationTitle("日程")
+            .frame(minWidth: 220)
+        } detail: {
+            VStack(spacing: 0) {
+                header
+                Divider()
+                detailContent
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $showingNewItem) {
             ScheduleEditSheet(
                 item: nil,
@@ -213,18 +249,20 @@ struct ScheduleWorkspaceView: View {
     private var header: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("本周日程")
+                Text(selectedView.title)
                     .font(.system(size: 24, weight: .semibold))
-                Text(weekRangeText)
+                Text(headerSubtitle)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button { moveWeek(-1) } label: { Image(systemName: "chevron.left") }
-                .help("上一周")
-            Button("今天") { weekAnchor = Date() }
-            Button { moveWeek(1) } label: { Image(systemName: "chevron.right") }
-                .help("下一周")
+            if selectedView == .week {
+                Button { moveWeek(-1) } label: { Image(systemName: "chevron.left") }
+                    .help("上一周")
+                Button("今天") { weekAnchor = Date() }
+                Button { moveWeek(1) } label: { Image(systemName: "chevron.right") }
+                    .help("下一周")
+            }
             Button {
                 showingNewItem = true
             } label: {
@@ -234,6 +272,59 @@ struct ScheduleWorkspaceView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        switch selectedView {
+        case .week:
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(weekDays, id: \.self) { day in
+                        ScheduleDayColumn(
+                            date: day,
+                            items: model.items(on: day),
+                            onEdit: { editingItem = $0 }
+                        )
+                        .frame(width: 220)
+                        if day != weekDays.last { Divider() }
+                    }
+                }
+                .frame(minHeight: 560, alignment: .top)
+            }
+        case .today:
+            ScheduleAgendaList(
+                items: model.items(on: Date()),
+                emptyText: "今天没有日程",
+                onEdit: { editingItem = $0 }
+            )
+        case .upcoming:
+            ScheduleAgendaList(
+                items: model.items.filter { $0.endAt >= Calendar.current.startOfDay(for: Date()) },
+                emptyText: "没有未来日程",
+                showsDate: true,
+                onEdit: { editingItem = $0 }
+            )
+        }
+    }
+
+    private var weekItemCount: Int {
+        guard let first = weekDays.first,
+              let last = weekDays.last,
+              let end = Calendar.current.date(byAdding: .day, value: 1, to: last)
+        else { return 0 }
+        return model.items.filter { $0.startAt >= first && $0.startAt < end }.count
+    }
+
+    private var headerSubtitle: String {
+        switch selectedView {
+        case .today:
+            Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "zh_CN")))
+        case .week:
+            weekRangeText
+        case .upcoming:
+            "按时间顺序查看未来安排"
+        }
     }
 
     private var weekRangeText: String {
@@ -306,6 +397,59 @@ private struct ScheduleWorkspaceRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .contentShape(Rectangle())
+    }
+}
+
+private struct ScheduleAgendaList: View {
+    let items: [ScheduleItem]
+    let emptyText: String
+    var showsDate = false
+    let onEdit: (ScheduleItem) -> Void
+
+    var body: some View {
+        if items.isEmpty {
+            ContentUnavailableView(emptyText, systemImage: "calendar.badge.clock")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(items) { item in
+                        Button { onEdit(item) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 20) {
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    if showsDate {
+                                        Text(item.startAt.formatted(.dateTime.month().day().weekday(.abbreviated).locale(Locale(identifier: "zh_CN"))))
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    Text(item.startAt.formatted(date: .omitted, time: .shortened))
+                                        .font(.system(size: 15, design: .monospaced))
+                                        .foregroundStyle(Color.qtCyan)
+                                }
+                                .frame(width: showsDate ? 112 : 68, alignment: .trailing)
+
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(item.title)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .lineLimit(2)
+                                    Text("至 \(item.endAt.formatted(date: .omitted, time: .shortened))")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 28)
+                            .padding(.vertical, 16)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().padding(.leading, showsDate ? 160 : 116)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -397,21 +541,23 @@ private struct DayEdgePanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("今天")
-                    .font(.system(size: 36, weight: .regular))
-                    .foregroundStyle(Color.qtMist)
-                Text(Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "zh_CN"))))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.qtMist.opacity(0.64))
-                Text(now.formatted(date: .omitted, time: .shortened) + " 实时")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("今天")
+                        .font(.system(size: 32, weight: .regular))
+                        .foregroundStyle(Color.qtMist)
+                    Text(Date().formatted(.dateTime.month().day().weekday(.wide).locale(Locale(identifier: "zh_CN"))))
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.qtMist.opacity(0.64))
+                }
+                Spacer()
+                Text(now.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.qtCyan)
-                    .padding(.top, 8)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
 
             timeline
                 .padding(.horizontal, 20)
@@ -425,13 +571,13 @@ private struct DayEdgePanelView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.qtCyan)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 18)
+                .padding(.vertical, 16)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
         .background(.ultraThinMaterial)
-        .background(Color.qtGraphite.opacity(0.68))
+        .background(Color.qtGraphite.opacity(0.82))
         .clipShape(UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: 0,
@@ -449,7 +595,8 @@ private struct DayEdgePanelView: View {
 
     private var timeline: some View {
         GeometryReader { geometry in
-            let height = max(336, geometry.size.height - 24)
+            let height = max(480, geometry.size.height - 20)
+            let todayItems = model.items(on: Date())
             ZStack(alignment: .topLeading) {
                 Path { path in
                     path.move(to: CGPoint(x: 70, y: 12))
@@ -469,8 +616,8 @@ private struct DayEdgePanelView: View {
                         .position(x: 70, y: y)
                 }
 
-                ForEach(model.items(on: Date())) { item in
-                    let y = dateY(item.startAt, height: height) + 12
+                ForEach(Array(todayItems.enumerated()), id: \.element.id) { index, item in
+                    let y = collisionSafeY(index: index, items: todayItems, height: height) + 10
                     HStack(alignment: .top, spacing: 12) {
                         Circle()
                             .fill(isCurrent(item) ? Color.qtCyan : Color.qtLakeBlue)
@@ -481,17 +628,17 @@ private struct DayEdgePanelView: View {
                                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                                 .foregroundStyle(isCurrent(item) ? Color.qtCyan : Color.qtMist.opacity(0.66))
                             Text(item.title)
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(Color.qtMist)
-                                .lineLimit(2)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
-                    .frame(width: 238, alignment: .leading)
-                    .padding(.vertical, isCurrent(item) ? 10 : 4)
+                    .frame(width: 266, height: 42, alignment: .leading)
                     .padding(.horizontal, isCurrent(item) ? 12 : 0)
                     .background(isCurrent(item) ? Color.qtLakeBlue.opacity(0.24) : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .position(x: 196, y: y)
+                    .position(x: 214, y: y)
                 }
 
                 if isWithinTimeline(now) {
@@ -525,6 +672,19 @@ private struct DayEdgePanelView: View {
         return CGFloat(min(max((value - start) / (end - start), 0), 1)) * height
     }
 
+    private func collisionSafeY(index: Int, items: [ScheduleItem], height: CGFloat) -> CGFloat {
+        guard items.indices.contains(index) else { return 0 }
+        let minimumGap: CGFloat = 46
+        var positions: [CGFloat] = []
+        for item in items {
+            let desired = dateY(item.startAt, height: height)
+            let adjusted = max(desired, (positions.last ?? -minimumGap) + minimumGap)
+            positions.append(adjusted)
+        }
+        let overflow = max(0, (positions.last ?? 0) - (height - 24))
+        return max(22, positions[index] - overflow)
+    }
+
     private func isWithinTimeline(_ date: Date) -> Bool {
         let hour = Calendar.current.component(.hour, from: date)
         return (dayStartHour...dayEndHour).contains(hour)
@@ -547,11 +707,11 @@ private struct TaskIslandView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("\(model.openTasks.count)")
-                    .font(.system(size: 38, weight: .light))
-                    .monospacedDigit()
-                Text("项待完成")
-                    .font(.system(size: 22, weight: .semibold))
+                Text("待完成")
+                    .font(.system(size: 21, weight: .semibold))
+                Text("\(model.openTasks.count) 项")
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.qtCyan)
                 Spacer()
                 Button(action: onOpenApp) {
                     Image(systemName: "arrow.up.right")
@@ -582,17 +742,13 @@ private struct TaskIslandView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(model.openTasks.enumerated()), id: \.element.id) { index, task in
+                        ForEach(model.openTasks) { task in
                             TaskIslandRow(task: task) {
-                                withAnimation(.easeOut(duration: 0.18)) {
+                                withAnimation(.easeOut(duration: 0.12)) {
                                     model.markDone(task)
                                 }
                             }
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
-                                removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .leading))
-                            ))
-                            .animation(.easeOut(duration: 0.22).delay(min(Double(index) * 0.025, 0.16)), value: model.openTasks.count)
+                            .transition(.opacity)
                             if task.id != model.openTasks.last?.id {
                                 Divider().overlay(Color.qtMist.opacity(0.08)).padding(.leading, 76)
                             }
@@ -600,18 +756,10 @@ private struct TaskIslandView: View {
                     }
                 }
                 .scrollIndicators(.visible)
-                .mask {
-                    LinearGradient(
-                        colors: [.clear, .black, .black, .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
             }
         }
         .foregroundStyle(Color.qtMist)
-        .background(.ultraThinMaterial)
-        .background(Color.qtNotchBlack.opacity(0.92))
+        .background(Color.qtNotchBlack.opacity(0.98))
         .clipShape(NotchIslandShape())
         .overlay {
             NotchIslandShape()
@@ -693,39 +841,39 @@ private struct TaskIslandRow: View {
                     if let progress = task.subtaskProgressText {
                         Label(progress, systemImage: "checklist")
                     }
+                    if let deadline = task.deadline {
+                        Spacer(minLength: 8)
+                        deadlineText(deadline)
+                    }
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(Color.qtMist.opacity(0.52))
             }
-
-            Spacer(minLength: 16)
-
-            if let deadline = task.deadline {
-                if task.showsDeadlineTime {
-                    Text(deadline.formatted(.dateTime
-                        .year().month().day()
-                        .hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits)
-                        .locale(Locale(identifier: "zh_CN"))))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Color.qtMist.opacity(0.60))
-                    .lineLimit(1)
-                } else {
-                    Text(deadline.formatted(.dateTime
-                        .year().month().day()
-                        .locale(Locale(identifier: "zh_CN"))))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Color.qtMist.opacity(0.60))
-                    .lineLimit(1)
-                }
-            }
+            .layoutPriority(1)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 16)
         .background(hovering ? Color.qtLakeBlue.opacity(0.16) : .clear)
         .contentShape(Rectangle())
-        .scaleEffect(hovering ? 1.006 : 1, anchor: .leading)
-        .animation(.easeOut(duration: 0.14), value: hovering)
         .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private func deadlineText(_ deadline: Date) -> some View {
+        if task.showsDeadlineTime {
+            Text(deadline.formatted(.dateTime
+                .month().day()
+                .hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits)
+                .locale(Locale(identifier: "zh_CN"))))
+            .font(.system(size: 12, design: .monospaced))
+            .lineLimit(1)
+        } else {
+            Text(deadline.formatted(.dateTime
+                .month().day()
+                .locale(Locale(identifier: "zh_CN"))))
+            .font(.system(size: 12, design: .monospaced))
+            .lineLimit(1)
+        }
     }
 }
 
@@ -877,15 +1025,15 @@ final class OverlayCoordinator {
         guard !isPaused, let screen = targetScreen else { return }
         edgeWorkItem?.cancel()
         schedule.reload()
-        let width: CGFloat = 360
-        let height = min(720, screen.visibleFrame.height * 0.70)
+        let width: CGFloat = 388
+        let height = screen.visibleFrame.height
         let finalFrame = NSRect(
             x: screen.frame.minX,
-            y: screen.visibleFrame.midY - height / 2,
+            y: screen.visibleFrame.minY,
             width: width,
             height: height
         )
-        let startFrame = NSRect(x: screen.frame.minX - width + 8, y: finalFrame.minY, width: width, height: height)
+        let startFrame = finalFrame.offsetBy(dx: -44, dy: 0)
 
         if edgePanel == nil {
             let panel = makeOverlayPanel(frame: startFrame)
@@ -903,14 +1051,16 @@ final class OverlayCoordinator {
         }
         guard let edgePanel else { return }
         edgePanel.setFrame(startFrame, display: false)
+        edgePanel.alphaValue = 0
         edgePanel.orderFrontRegardless()
-        animate(edgePanel, to: finalFrame, duration: 0.32)
+        animate(edgePanel, to: finalFrame, alpha: 1, duration: 0.20)
     }
 
     private func hideEdgePanel() {
         guard let panel = edgePanel, panel.isVisible else { return }
-        let target = NSRect(x: panel.frame.minX - panel.frame.width + 8, y: panel.frame.minY, width: panel.frame.width, height: panel.frame.height)
-        animate(panel, to: target, duration: 0.22) { panel.orderOut(nil) }
+        guard !panel.frame.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) else { return }
+        let target = panel.frame.offsetBy(dx: -32, dy: 0)
+        animate(panel, to: target, alpha: 0, duration: 0.15) { panel.orderOut(nil) }
     }
 
     private func showIslandPanel() {
@@ -925,7 +1075,7 @@ final class OverlayCoordinator {
             width: width,
             height: height
         )
-        let startFrame = NSRect(x: finalFrame.minX, y: screen.frame.maxY - 44, width: width, height: 44)
+        let startFrame = finalFrame.offsetBy(dx: 0, dy: 20)
 
         if islandPanel == nil {
             let panel = makeOverlayPanel(frame: startFrame)
@@ -944,14 +1094,16 @@ final class OverlayCoordinator {
         }
         guard let islandPanel else { return }
         islandPanel.setFrame(startFrame, display: false)
+        islandPanel.alphaValue = 0
         islandPanel.orderFrontRegardless()
-        animate(islandPanel, to: finalFrame, duration: 0.36)
+        animate(islandPanel, to: finalFrame, alpha: 1, duration: 0.18)
     }
 
     private func hideIslandPanel() {
         guard let panel = islandPanel, panel.isVisible else { return }
-        let target = NSRect(x: panel.frame.minX, y: panel.frame.maxY - 44, width: panel.frame.width, height: 44)
-        animate(panel, to: target, duration: 0.24) { panel.orderOut(nil) }
+        guard !panel.frame.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) else { return }
+        let target = panel.frame.offsetBy(dx: 0, dy: 16)
+        animate(panel, to: target, alpha: 0, duration: 0.14) { panel.orderOut(nil) }
     }
 
     private func makeOverlayPanel(frame: NSRect) -> OverlayPanel {
@@ -964,15 +1116,22 @@ final class OverlayCoordinator {
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.animationBehavior = .none
         return panel
     }
 
-    private func animate(_ panel: NSPanel, to frame: NSRect, duration: TimeInterval, completion: (() -> Void)? = nil) {
+    private func animate(
+        _ panel: NSPanel,
+        to frame: NSRect,
+        alpha: CGFloat,
+        duration: TimeInterval,
+        completion: (() -> Void)? = nil
+    ) {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             panel.setFrame(frame, display: true)
+            panel.alphaValue = alpha
             completion?()
             return
         }
@@ -980,6 +1139,7 @@ final class OverlayCoordinator {
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
+            panel.animator().alphaValue = alpha
         } completionHandler: {
             completion?()
         }

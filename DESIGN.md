@@ -34,7 +34,7 @@ Use a 4-point base scale: 4, 8, 12, 16, 24, 32, 48. Related metadata stays withi
 
 ## Surfaces
 
-- Edge schedule: 360 points wide, up to 70% of screen height, vertically centered, 14-point outer corners except the screen-attached edge.
+- Edge schedule: 388 points wide and exactly fills the usable height between the menu bar and Dock. It never crosses either system region. The time axis preserves true position while compact event rows use collision-safe spacing and single-line truncation.
 - Notch task surface: 600 points wide by up to 480 points high, centered on the built-in display notch. Its top edge visually merges with the notch; lower corners are 14 points.
 - Main app: week-first schedule workspace with a task sidebar; familiar macOS toolbar and sheets.
 
@@ -42,10 +42,10 @@ Avoid nested cards. Rows are grouped with alignment, rhythm, and hairlines only.
 
 ## Motion
 
-- Edge activation delay: about 250 ms. Enter: 320 ms ease-out; exit: 220 ms ease-in/out after a 350 ms hover bridge.
-- Notch expansion: 360 ms spring with low bounce; task rows stagger no more than 180 ms total.
+- Edge activation delay: about 250 ms. Enter: 200 ms short-distance slide/fade; exit: 150 ms after a 350 ms hover bridge.
+- Notch expansion: 180 ms short-distance slide/fade with a pre-laid-out fixed-size surface. Do not animate window height or stagger task rows.
 - Task completion: immediate check response, 180 ms compression/crossfade, then persistence.
-- Scroll content uses subtle top and bottom fade masks.
+- Do not use gradients or fade masks. Overflow uses the native scroll indicator.
 - Reduce Motion: no spring, no stagger, no scale; use 120–160 ms opacity transitions.
 
 ## States

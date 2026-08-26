@@ -16,6 +16,8 @@ The primary user is a MacBook Air M2 owner who plans study, courses, personal ro
 
 Quiet Tasks combines two intentionally separate local systems. The schedule answers “where am I in the day?” and is read-only in its edge panel; tasks answer “what must I finish?” and remain directly checkable. Success means the user can recover orientation or complete a task without opening a conventional calendar or project-management window.
 
+The main schedule and task workspaces use the same native split-view grammar. Switching between them must preserve navigation density and spatial orientation instead of jumping between unrelated shells.
+
 ## Positioning
 
 A native macOS day compass and task surface that appears exactly where attention already travels: the screen edge for time and the notch for action.
