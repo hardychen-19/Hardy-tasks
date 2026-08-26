@@ -33,6 +33,9 @@ This branch also turns Quiet Tasks into a native day compass for notched MacBook
 - Both surfaces hide automatically and respect Reduce Motion.
 - The main app opens to a local week schedule and keeps schedule data separate from task data.
 - A menu-bar control opens the app, pauses edge triggers, and manages startup behavior.
+- Deadline awareness uses a short, three-ring light wave around the notch: system accent for approaching, orange for urgent, and red for overdue.
+- Waves are deduplicated by urgency stage, stay quiet from 23:30 to 07:30 and during full-screen work or Apple screen recording, then deliver one combined catch-up cue.
+- Overdue tasks and urgent high-priority tasks can optionally use a standard macOS notification as a fallback; this remains opt-in for new users.
 
 The interaction and visual rationale live in [`PRODUCT.md`](PRODUCT.md) and [`DESIGN.md`](DESIGN.md).
 

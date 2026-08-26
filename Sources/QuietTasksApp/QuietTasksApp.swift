@@ -168,6 +168,20 @@ struct NotificationSettings: Codable, Equatable {
     static let `default` = NotificationSettings(enabled: false, reminderOffsets: [.oneHour])
 }
 
+struct DeadlineAwarenessSettings: Codable, Equatable {
+    var enabled: Bool
+    var systemNotificationFallback: Bool
+    var quietStartMinutes: Int
+    var quietEndMinutes: Int
+
+    static let `default` = DeadlineAwarenessSettings(
+        enabled: true,
+        systemNotificationFallback: false,
+        quietStartMinutes: 23 * 60 + 30,
+        quietEndMinutes: 7 * 60 + 30
+    )
+}
+
 enum AppearanceMode: String, CaseIterable, Codable, Identifiable {
     case system
     case light
@@ -212,12 +226,45 @@ struct AppSettings: Codable, Equatable {
     var notifications: NotificationSettings
     var appearance: AppearanceMode
     var googleSync: GoogleSyncSettings
+    var deadlineAwareness: DeadlineAwarenessSettings
 
     static let `default` = AppSettings(
         notifications: .default,
         appearance: .system,
-        googleSync: .default
+        googleSync: .default,
+        deadlineAwareness: .default
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case notifications
+        case appearance
+        case googleSync
+        case deadlineAwareness
+    }
+
+    init(
+        notifications: NotificationSettings,
+        appearance: AppearanceMode,
+        googleSync: GoogleSyncSettings,
+        deadlineAwareness: DeadlineAwarenessSettings
+    ) {
+        self.notifications = notifications
+        self.appearance = appearance
+        self.googleSync = googleSync
+        self.deadlineAwareness = deadlineAwareness
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        notifications = try container.decodeIfPresent(NotificationSettings.self, forKey: .notifications) ?? .default
+        appearance = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
+        googleSync = try container.decodeIfPresent(GoogleSyncSettings.self, forKey: .googleSync) ?? .default
+        deadlineAwareness = try container.decodeIfPresent(DeadlineAwarenessSettings.self, forKey: .deadlineAwareness) ?? .default
+    }
+}
+
+extension Notification.Name {
+    static let quietTasksChanged = Notification.Name("quietTasks.tasksChanged")
 }
 
 enum SharedFiles {
@@ -266,6 +313,9 @@ enum TaskStore {
         try? FileManager.default.createDirectory(at: SharedFiles.directory, withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)
         WidgetCenter.shared.reloadAllTimelines()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .quietTasksChanged, object: nil)
+        }
     }
 
     private static func decode(_ url: URL) -> [TaskItem]? {
@@ -330,6 +380,8 @@ enum SettingsStore {
             normalized.notifications.reminderOffsets = [.oneHour]
         }
         normalized.googleSync.clientID = normalized.googleSync.clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.deadlineAwareness.quietStartMinutes = min(max(normalized.deadlineAwareness.quietStartMinutes, 0), 1439)
+        normalized.deadlineAwareness.quietEndMinutes = min(max(normalized.deadlineAwareness.quietEndMinutes, 0), 1439)
         return normalized
     }
 }
@@ -381,6 +433,16 @@ enum NotificationScheduler {
                 }
             }
         }
+    }
+
+    static func sendDeadlineFallback(title: String, body: String, identifier: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.interruptionLevel = .active
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 }
 
@@ -1120,6 +1182,15 @@ final class TaskModel: ObservableObject {
         settings.appearance = appearance
         SettingsStore.save(settings)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    func updateDeadlineAwarenessSettings(_ deadlineAwareness: DeadlineAwarenessSettings) {
+        settings.deadlineAwareness = deadlineAwareness
+        SettingsStore.save(settings)
+        NotificationCenter.default.post(name: .quietTasksChanged, object: nil)
+        if deadlineAwareness.enabled && deadlineAwareness.systemNotificationFallback {
+            NotificationScheduler.requestAuthorization { _ in }
+        }
     }
 
     func updateGoogleSettings(_ googleSettings: GoogleSyncSettings) {
@@ -1972,6 +2043,8 @@ struct SettingsSheet: View {
 
             notificationSection
             Divider()
+            deadlineAwarenessSection
+            Divider()
             googleSection
 
             if let status = model.googleStatus {
@@ -2012,6 +2085,25 @@ struct SettingsSheet: View {
         }
         .onChange(of: draft.notifications) { _, notifications in
             model.updateNotificationSettings(notifications)
+        }
+    }
+
+    private var deadlineAwarenessSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Deadline waves", isOn: $draft.deadlineAwareness.enabled)
+                .toggleStyle(.switch)
+
+            Toggle("System notification fallback", isOn: $draft.deadlineAwareness.systemNotificationFallback)
+                .toggleStyle(.checkbox)
+                .disabled(!draft.deadlineAwareness.enabled)
+
+            Text("Quiet from 23:30 to 07:30. Full-screen work is never interrupted; one combined reminder appears after you leave full screen or quiet hours end.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: draft.deadlineAwareness) { _, _ in
+            model.updateDeadlineAwarenessSettings(draft.deadlineAwareness)
         }
     }
 
@@ -2120,6 +2212,7 @@ struct SettingsSheet: View {
             draft.notifications.reminderOffsets = [.oneHour]
         }
         model.updateNotificationSettings(draft.notifications)
+        model.updateDeadlineAwarenessSettings(draft.deadlineAwareness)
         model.updateGoogleSettings(draft.googleSync)
     }
 

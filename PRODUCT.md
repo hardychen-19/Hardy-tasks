@@ -38,6 +38,7 @@ Do not resemble a card-heavy dashboard, a phone-shaped Dynamic Island demo, a ma
 - Reveal the task panel only after the pointer reaches the notch trigger; keep it visible only while the pointer remains inside the trigger or panel, then disappear without residue.
 - Let time and typography form the layout before adding containers.
 - Use motion to preserve spatial relationships: edge to panel, physical notch expanding into the task surface, task to completion.
+- Deadline awareness should regain attention without training anxiety: one brief wave per meaningful urgency transition, quiet during sleep and focused work, with bundled catch-up instead of stacked interruptions.
 - Preserve local ownership, existing task data, and reversible installation.
 
 ## Accessibility & Inclusion

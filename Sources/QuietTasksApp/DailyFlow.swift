@@ -522,6 +522,153 @@ private struct ScheduleEditSheet: View {
 
 // MARK: - Floating surfaces
 
+private enum DeadlineUrgency: Int, Comparable {
+    case approaching = 0
+    case urgent = 1
+    case overdue = 2
+
+    static func < (lhs: DeadlineUrgency, rhs: DeadlineUrgency) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    var color: Color {
+        switch self {
+        case .approaching: .accentColor
+        case .urgent: .orange
+        case .overdue: .red
+        }
+    }
+}
+
+private struct DeadlineCue {
+    let task: TaskItem
+    let urgency: DeadlineUrgency
+    let key: String
+}
+
+private enum DeadlineAwarenessPlanner {
+    static func cues(for tasks: [TaskItem], now: Date = Date()) -> [DeadlineCue] {
+        tasks.compactMap { cue(for: $0, now: now) }
+    }
+
+    private static func cue(for task: TaskItem, now: Date) -> DeadlineCue? {
+        guard !task.done, let storedDeadline = task.deadline else { return nil }
+        let calendar = Calendar.current
+        let effectiveDeadline: Date
+        let urgency: DeadlineUrgency
+
+        if task.showsDeadlineTime {
+            effectiveDeadline = storedDeadline
+            let remaining = effectiveDeadline.timeIntervalSince(now)
+            if remaining <= 0 {
+                urgency = .overdue
+            } else {
+                let thresholds = timedThresholds(for: task.taskPriority)
+                if remaining <= thresholds.urgent {
+                    urgency = .urgent
+                } else if remaining <= thresholds.approaching {
+                    urgency = .approaching
+                } else {
+                    return nil
+                }
+            }
+        } else {
+            effectiveDeadline = calendar.date(
+                bySettingHour: 20,
+                minute: 30,
+                second: 0,
+                of: storedDeadline
+            ) ?? storedDeadline
+
+            if now >= effectiveDeadline {
+                urgency = .overdue
+            } else if calendar.isDate(now, inSameDayAs: storedDeadline) {
+                let finalReminder = calendar.date(bySettingHour: 19, minute: 30, second: 0, of: storedDeadline) ?? storedDeadline
+                let planningReminder = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: storedDeadline) ?? storedDeadline
+                if now >= finalReminder {
+                    urgency = .urgent
+                } else if now >= planningReminder {
+                    urgency = .approaching
+                } else {
+                    return nil
+                }
+            } else {
+                return nil
+            }
+        }
+
+        let deadlineStamp = Int(effectiveDeadline.timeIntervalSince1970)
+        let stage: String
+        if urgency == .overdue {
+            let overdueSeconds = max(0, now.timeIntervalSince(effectiveDeadline))
+            stage = "overdue-\(Int(overdueSeconds / 7_200))"
+        } else {
+            stage = urgency == .urgent ? "urgent" : "approaching"
+        }
+        return DeadlineCue(task: task, urgency: urgency, key: "\(task.id).\(deadlineStamp).\(stage)")
+    }
+
+    private static func timedThresholds(for priority: TaskPriority) -> (approaching: TimeInterval, urgent: TimeInterval) {
+        switch priority {
+        case .high: (3 * 3_600, 3_600)
+        case .normal: (2 * 3_600, 30 * 60)
+        case .low: (3_600, 15 * 60)
+        }
+    }
+}
+
+private final class DeadlineWavePresentation: ObservableObject {
+    @Published var urgency: DeadlineUrgency = .approaching
+    @Published var notchSize = CGSize(width: 185, height: 33)
+    @Published var startedAt = Date()
+    @Published var isVisible = false
+}
+
+private struct DeadlineWaveView: View {
+    @ObservedObject var presentation: DeadlineWavePresentation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !presentation.isVisible)) { context in
+            let elapsed = context.date.timeIntervalSince(presentation.startedAt)
+            ZStack(alignment: .top) {
+                ForEach(0..<3, id: \.self) { index in
+                    let progress = ringProgress(index, elapsed: elapsed)
+                    let opacity = ringOpacity(progress)
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 10 + 10 * progress,
+                        bottomTrailingRadius: 10 + 10 * progress,
+                        topTrailingRadius: 0
+                    )
+                    .stroke(presentation.urgency.color.opacity(opacity), lineWidth: 1.4)
+                    .shadow(color: presentation.urgency.color.opacity(opacity * 0.72), radius: 5)
+                    .frame(
+                        width: presentation.notchSize.width + 68 * progress,
+                        height: presentation.notchSize.height + 50 * progress
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func ringProgress(_ index: Int, elapsed: TimeInterval) -> CGFloat {
+        if reduceMotion {
+            return min(max(CGFloat(elapsed / 0.4), 0), 1)
+        }
+        let delay = Double(index) * 0.22
+        return min(max(CGFloat((elapsed - delay) / 1.05), 0), 1)
+    }
+
+    private func ringOpacity(_ progress: CGFloat) -> Double {
+        guard progress > 0, progress < 1 else { return 0 }
+        return 0.78 * sin(Double.pi * Double(progress))
+    }
+}
+
 private struct DayEdgePanelView: View {
     @ObservedObject var model: ScheduleModel
     let onOpenSchedule: () -> Void
@@ -941,10 +1088,12 @@ final class OverlayCoordinator {
     private let tasks = TaskModel()
     private let schedule = ScheduleModel()
     private let islandPresentation = TaskIslandPresentation()
+    private let deadlineWavePresentation = DeadlineWavePresentation()
     private var edgeTrigger: NSPanel?
     private var notchTrigger: NSPanel?
     private var edgePanel: OverlayPanel?
     private var islandPanel: OverlayPanel?
+    private var deadlineWavePanel: OverlayPanel?
     private var edgeWorkItem: DispatchWorkItem?
     private var islandWorkItem: DispatchWorkItem?
     private var islandDismissWorkItem: DispatchWorkItem?
@@ -953,17 +1102,54 @@ final class OverlayCoordinator {
     private var edgePointerOutsideSince: Date?
     private var islandPointerTimer: Timer?
     private var islandPointerOutsideSince: Date?
+    private var deadlineTimer: Timer?
+    private var deadlineWaveDismissWorkItem: DispatchWorkItem?
+    private var deliveredDeadlineCues: [String: TimeInterval] = UserDefaults.standard.dictionary(
+        forKey: "quietTasks.deliveredDeadlineCues"
+    ) as? [String: TimeInterval] ?? [:]
     private(set) var isPaused = false
 
     func start() {
         installTriggers()
+        startDeadlineAwareness()
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.installTriggers() }
+            Task { @MainActor in
+                self?.installTriggers()
+                self?.evaluateDeadlineAwareness()
+            }
         }
+        NotificationCenter.default.addObserver(
+            forName: .quietTasksChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.evaluateDeadlineAwareness() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.evaluateDeadlineAwareness() }
+        }
+#if DEBUG
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("quietTasks.testDeadlineWave"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let value = notification.object as? String,
+                  let urgency = DeadlineUrgency(testValue: value)
+            else {
+                return
+            }
+            Task { @MainActor in self?.showDeadlineWave(urgency: urgency) }
+        }
+#endif
     }
 
     func setPaused(_ paused: Bool) {
@@ -971,10 +1157,12 @@ final class OverlayCoordinator {
         if paused {
             hideEdgePanel()
             hideIslandPanel()
+            hideDeadlineWave()
             edgeTrigger?.orderOut(nil)
             notchTrigger?.orderOut(nil)
         } else {
             installTriggers()
+            evaluateDeadlineAwareness()
         }
     }
 
@@ -1252,6 +1440,164 @@ final class OverlayCoordinator {
         return panel
     }
 
+    private func startDeadlineAwareness() {
+        deadlineTimer?.invalidate()
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.evaluateDeadlineAwareness() }
+        }
+        deadlineTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+
+        let settings = SettingsStore.load().deadlineAwareness
+        if settings.enabled && settings.systemNotificationFallback {
+            NotificationScheduler.requestAuthorization { _ in }
+        }
+#if DEBUG
+        if let testValue = ProcessInfo.processInfo.environment["QUIET_TASKS_TEST_DEADLINE_WAVE"],
+           let testUrgency = DeadlineUrgency(testValue: testValue) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.showDeadlineWave(urgency: testUrgency)
+            }
+            return
+        }
+#endif
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.evaluateDeadlineAwareness()
+        }
+    }
+
+    private func evaluateDeadlineAwareness(now: Date = Date()) {
+        let settings = SettingsStore.load().deadlineAwareness
+        guard !isPaused, settings.enabled else {
+            hideDeadlineWave()
+            return
+        }
+
+        let allCues = DeadlineAwarenessPlanner.cues(for: TaskStore.load(), now: now)
+        let pendingCues = allCues.filter { deliveredDeadlineCues[$0.key] == nil }
+        guard !pendingCues.isEmpty else { return }
+        guard !isQuietTime(now, settings: settings),
+              !isFrontmostAppFullScreen,
+              !isAppleScreenCaptureActive
+        else {
+            return
+        }
+
+        if islandPanel?.isVisible == true {
+            markDeadlineCuesDelivered(pendingCues, at: now)
+            return
+        }
+
+        let urgency = pendingCues.map(\.urgency).max() ?? .approaching
+        showDeadlineWave(urgency: urgency)
+        markDeadlineCuesDelivered(pendingCues, at: now)
+
+        guard settings.systemNotificationFallback else { return }
+        let fallbackCues = pendingCues.filter {
+            $0.urgency == .overdue || ($0.urgency == .urgent && $0.task.taskPriority == .high)
+        }
+        guard let leadingCue = fallbackCues.max(by: { $0.urgency < $1.urgency }) else { return }
+        let title = leadingCue.urgency == .overdue ? "Task overdue" : "High-priority task due soon"
+        let suffix = fallbackCues.count > 1 ? " and \(fallbackCues.count - 1) more" : ""
+        NotificationScheduler.sendDeadlineFallback(
+            title: title,
+            body: "\(leadingCue.task.title)\(suffix)",
+            identifier: "quiettasks.awareness.\(leadingCue.key)"
+        )
+    }
+
+    private func showDeadlineWave(urgency: DeadlineUrgency) {
+        guard let screen = targetScreen, let notchFrame = physicalNotchFrame(on: screen) else { return }
+        deadlineWaveDismissWorkItem?.cancel()
+        let width = notchFrame.width + 88
+        let height = notchFrame.height + 64
+        let frame = NSRect(
+            x: notchFrame.midX - width / 2,
+            y: screen.frame.maxY - height,
+            width: width,
+            height: height
+        )
+
+        if deadlineWavePanel == nil {
+            let panel = makeOverlayPanel(frame: frame)
+            panel.level = .mainMenu + 2
+            panel.ignoresMouseEvents = true
+            panel.contentView = NSHostingView(rootView: DeadlineWaveView(presentation: deadlineWavePresentation))
+            deadlineWavePanel = panel
+        }
+
+        guard let panel = deadlineWavePanel else { return }
+        deadlineWavePresentation.notchSize = notchFrame.size
+        deadlineWavePresentation.urgency = urgency
+        deadlineWavePresentation.startedAt = Date()
+        deadlineWavePresentation.isVisible = true
+        panel.setFrame(frame, display: false)
+        panel.orderFrontRegardless()
+
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.45 : 1.7
+        let item = DispatchWorkItem { [weak self] in self?.hideDeadlineWave() }
+        deadlineWaveDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
+    }
+
+    private func hideDeadlineWave() {
+        deadlineWaveDismissWorkItem?.cancel()
+        deadlineWavePresentation.isVisible = false
+        deadlineWavePanel?.orderOut(nil)
+    }
+
+    private func markDeadlineCuesDelivered(_ cues: [DeadlineCue], at date: Date) {
+        for cue in cues {
+            deliveredDeadlineCues[cue.key] = date.timeIntervalSince1970
+        }
+        if deliveredDeadlineCues.count > 256 {
+            deliveredDeadlineCues = Dictionary(
+                uniqueKeysWithValues: deliveredDeadlineCues
+                    .sorted { $0.value > $1.value }
+                    .prefix(192)
+                    .map { ($0.key, $0.value) }
+            )
+        }
+        UserDefaults.standard.set(deliveredDeadlineCues, forKey: "quietTasks.deliveredDeadlineCues")
+    }
+
+    private func isQuietTime(_ date: Date, settings: DeadlineAwarenessSettings) -> Bool {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        let start = settings.quietStartMinutes
+        let end = settings.quietEndMinutes
+        if start == end { return false }
+        if start < end { return minuteOfDay >= start && minuteOfDay < end }
+        return minuteOfDay >= start || minuteOfDay < end
+    }
+
+    private var isFrontmostAppFullScreen: Bool {
+        guard let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let screen = targetScreen,
+              let windowInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]]
+        else {
+            return false
+        }
+
+        return windowInfo.contains { info in
+            guard (info[kCGWindowOwnerPID as String] as? pid_t) == frontmostPID,
+                  (info[kCGWindowLayer as String] as? Int) == 0,
+                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? CGFloat,
+                  let height = bounds["Height"] as? CGFloat
+            else {
+                return false
+            }
+            return width >= screen.frame.width - 2 && height >= screen.frame.height - 2
+        }
+    }
+
+    private var isAppleScreenCaptureActive: Bool {
+        NSWorkspace.shared.runningApplications.contains {
+            $0.bundleIdentifier == "com.apple.screencaptureui"
+        }
+    }
+
     private func animate(
         _ panel: NSPanel,
         to frame: NSRect,
@@ -1306,6 +1652,19 @@ final class OverlayCoordinator {
         return frame
     }
 }
+
+#if DEBUG
+private extension DeadlineUrgency {
+    init?(testValue: String) {
+        switch testValue.lowercased() {
+        case "approaching": self = .approaching
+        case "urgent": self = .urgent
+        case "overdue": self = .overdue
+        default: return nil
+        }
+    }
+}
+#endif
 
 extension View {
     func workspaceContentSurface() -> some View {
