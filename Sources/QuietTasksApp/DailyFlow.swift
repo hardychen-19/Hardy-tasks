@@ -524,7 +524,6 @@ private struct ScheduleEditSheet: View {
 
 private struct DayEdgePanelView: View {
     @ObservedObject var model: ScheduleModel
-    let onHover: (Bool) -> Void
     let onOpenSchedule: () -> Void
     @State private var now = Date()
 
@@ -568,6 +567,7 @@ private struct DayEdgePanelView: View {
             }
             .buttonStyle(.plain)
         }
+        .drawingGroup(opaque: false, colorMode: .nonLinear)
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -579,7 +579,6 @@ private struct DayEdgePanelView: View {
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
         }
         .environment(\.locale, Locale(identifier: "en_US"))
-        .onHover(perform: onHover)
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now = $0 }
     }
 
@@ -942,6 +941,9 @@ final class OverlayCoordinator {
     private var edgeWorkItem: DispatchWorkItem?
     private var islandWorkItem: DispatchWorkItem?
     private var islandDismissWorkItem: DispatchWorkItem?
+    private var edgeDismissWorkItem: DispatchWorkItem?
+    private var edgePointerTimer: Timer?
+    private var edgePointerOutsideSince: Date?
     private var islandPointerTimer: Timer?
     private var islandPointerOutsideSince: Date?
     private(set) var isPaused = false
@@ -983,7 +985,7 @@ final class OverlayCoordinator {
         edgeTrigger = makeTrigger(frame: edgeFrame, enter: { [weak self] in
             self?.scheduleEdgeShow()
         }, exit: { [weak self] in
-            self?.scheduleEdgeHide()
+            self?.cancelPendingEdgeShow()
         })
 
         // The physical notch itself is not a pointer-addressable area. The trigger
@@ -1027,14 +1029,12 @@ final class OverlayCoordinator {
         edgeWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.showEdgePanel() }
         edgeWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
     }
 
-    private func scheduleEdgeHide() {
+    private func cancelPendingEdgeShow() {
+        guard edgePanel?.isVisible != true else { return }
         edgeWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.hideEdgePanel() }
-        edgeWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
     }
 
     private func scheduleIslandShow() {
@@ -1052,6 +1052,7 @@ final class OverlayCoordinator {
     private func showEdgePanel() {
         guard !isPaused, let screen = targetScreen else { return }
         edgeWorkItem?.cancel()
+        edgeDismissWorkItem?.cancel()
         schedule.reload()
         let width: CGFloat = 388
         let height = screen.visibleFrame.height
@@ -1061,15 +1062,12 @@ final class OverlayCoordinator {
             width: width,
             height: height
         )
-        let startFrame = finalFrame.offsetBy(dx: -44, dy: 0)
+        let startFrame = finalFrame.offsetBy(dx: -28, dy: 0)
 
         if edgePanel == nil {
             let panel = makeOverlayPanel(frame: startFrame)
             panel.contentView = NSHostingView(rootView: DayEdgePanelView(
                 model: schedule,
-                onHover: { [weak self] inside in
-                    inside ? self?.edgeWorkItem?.cancel() : self?.scheduleEdgeHide()
-                },
                 onOpenSchedule: { [weak self] in
                     self?.openMainApp(schedule: true)
                     self?.hideEdgePanel()
@@ -1078,17 +1076,64 @@ final class OverlayCoordinator {
             edgePanel = panel
         }
         guard let edgePanel else { return }
-        edgePanel.setFrame(startFrame, display: false)
-        edgePanel.alphaValue = 0
+        if !edgePanel.isVisible {
+            edgePanel.setFrame(startFrame, display: false)
+            edgePanel.alphaValue = 0
+        }
         edgePanel.orderFrontRegardless()
-        animate(edgePanel, to: finalFrame, alpha: 1, duration: 0.20)
+        animate(edgePanel, to: finalFrame, alpha: 1, duration: 0.16)
+        startEdgePointerMonitor()
     }
 
     private func hideEdgePanel() {
+        stopEdgePointerMonitor()
         guard let panel = edgePanel, panel.isVisible else { return }
-        guard !panel.frame.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) else { return }
-        let target = panel.frame.offsetBy(dx: -32, dy: 0)
-        animate(panel, to: target, alpha: 0, duration: 0.15) { panel.orderOut(nil) }
+        edgeDismissWorkItem?.cancel()
+        let target = panel.frame.offsetBy(dx: -24, dy: 0)
+        animate(panel, to: target, alpha: 0, duration: 0.12)
+        let item = DispatchWorkItem { [weak self] in
+            self?.edgePanel?.orderOut(nil)
+        }
+        edgeDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13, execute: item)
+    }
+
+    private func startEdgePointerMonitor() {
+        stopEdgePointerMonitor()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.evaluateEdgePointer() }
+        }
+        edgePointerTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopEdgePointerMonitor() {
+        edgePointerTimer?.invalidate()
+        edgePointerTimer = nil
+        edgePointerOutsideSince = nil
+    }
+
+    private func evaluateEdgePointer() {
+        guard let panel = edgePanel, panel.isVisible else {
+            stopEdgePointerMonitor()
+            return
+        }
+
+        let pointer = NSEvent.mouseLocation
+        let isInsidePanel = panel.frame.insetBy(dx: -4, dy: -4).contains(pointer)
+        let isInsideTrigger = edgeTrigger?.frame.contains(pointer) == true
+        if isInsidePanel || isInsideTrigger {
+            edgePointerOutsideSince = nil
+            return
+        }
+
+        if let outsideSince = edgePointerOutsideSince {
+            if Date().timeIntervalSince(outsideSince) >= 0.09 {
+                hideEdgePanel()
+            }
+        } else {
+            edgePointerOutsideSince = Date()
+        }
     }
 
     private func showIslandPanel() {
