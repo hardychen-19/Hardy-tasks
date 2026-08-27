@@ -954,7 +954,7 @@ private struct TaskIslandView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
-                .help("Open Quiet Tasks")
+                .help("Open Hardy Tasks")
             }
             .padding(.horizontal, 28)
             .padding(.top, 20)
@@ -1035,7 +1035,7 @@ private struct TaskIslandView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Open Quiet Tasks")
+                .help("Open Hardy Tasks")
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 18)
@@ -2029,9 +2029,9 @@ final class QuietTasksAppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusItem() {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Quiet Tasks")
+        statusItem.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Hardy Tasks")
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open Quiet Tasks", action: #selector(openApp), keyEquivalent: "")
+        menu.addItem(withTitle: "Open Hardy Tasks", action: #selector(openApp), keyEquivalent: "")
         menu.addItem(withTitle: "View This Week", action: #selector(openSchedule), keyEquivalent: "")
         menu.addItem(.separator())
         let pause = NSMenuItem(title: "Pause Edge Triggers", action: #selector(togglePause), keyEquivalent: "")

@@ -1123,7 +1123,7 @@ final class TaskModel: ObservableObject {
 
     func togglePinned(_ task: TaskItem) {
         guard !task.isGoogleTask else {
-            googleStatus = "Google tasks are read-only. Pin local tasks in Quiet Tasks."
+            googleStatus = "Google tasks are read-only. Pin local tasks in Hardy Tasks."
             return
         }
         tasks = tasks.map { item in
@@ -1382,7 +1382,7 @@ struct TaskWorkspaceView: View {
                     .padding(.vertical, 4)
                 }
             }
-            .navigationTitle("Quiet Tasks")
+            .navigationTitle("Hardy Tasks")
             .frame(minWidth: 220)
         } detail: {
             VStack(alignment: .leading, spacing: 0) {
@@ -1475,7 +1475,7 @@ struct TaskWorkspaceView: View {
                 pendingReadOnlyGoogleTask = nil
             }
         } message: {
-            Text("Update “\(pendingReadOnlyGoogleTask?.title ?? "this task")” in Google Tasks. Quiet Tasks is only reading Google tasks in this version.")
+            Text("Update “\(pendingReadOnlyGoogleTask?.title ?? "this task")” in Google Tasks. Hardy Tasks is only reading Google tasks in this version.")
         }
         .sheet(item: $editingDraft) { draft in
             TaskEditSheet(draft: draft) { updatedDraft in
@@ -2143,7 +2143,7 @@ struct SettingsSheet: View {
                 }
             }
 
-            Text("Read-only sync imports Google Tasks into the app and widget. Quiet Tasks will not edit Google Tasks yet.")
+            Text("Read-only sync imports Google Tasks into the app and widget. Hardy Tasks will not edit Google Tasks yet.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

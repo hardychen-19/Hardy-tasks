@@ -286,7 +286,7 @@ extension JSONEncoder {
 
 struct RequestTaskCompletionIntent: AppIntent {
     static var title: LocalizedStringResource = "Confirm Task Completion"
-    static var description = IntentDescription("Shows an inline confirmation prompt in the Quiet Tasks widget.")
+    static var description = IntentDescription("Shows an inline confirmation prompt in the Hardy Tasks widget.")
 
     @Parameter(title: "Task ID")
     var taskID: String
@@ -332,7 +332,7 @@ struct CancelTaskCompletionIntent: AppIntent {
 
 struct CompleteTaskFromWidgetIntent: AppIntent {
     static var title: LocalizedStringResource = "Complete Task"
-    static var description = IntentDescription("Completes a Quiet Tasks task from the desktop widget.")
+    static var description = IntentDescription("Completes a Hardy Tasks task from the desktop widget.")
 
     @Parameter(title: "Task ID")
     var taskID: String
@@ -762,8 +762,8 @@ struct QuietTasksWidget: Widget {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
             QuietTasksWidgetView(entry: entry)
         }
-        .configurationDisplayName("Quiet Tasks")
-        .description("Shows open Quiet Tasks on the desktop.")
+        .configurationDisplayName("Hardy Tasks")
+        .description("Shows open Hardy Tasks on the desktop.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .containerBackgroundRemovable(false)
     }
