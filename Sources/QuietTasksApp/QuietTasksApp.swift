@@ -2097,6 +2097,16 @@ struct SettingsSheet: View {
                 .toggleStyle(.checkbox)
                 .disabled(!draft.deadlineAwareness.enabled)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Preview urgency")
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    wavePreviewButton("Blue", value: "approaching", color: .blue)
+                    wavePreviewButton("Orange", value: "urgent", color: .orange)
+                    wavePreviewButton("Red", value: "overdue", color: .red)
+                }
+            }
+
             Text("Quiet from 23:30 to 07:30. Full-screen work is never interrupted; one combined reminder appears after you leave full screen or quiet hours end.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -2105,6 +2115,20 @@ struct SettingsSheet: View {
         .onChange(of: draft.deadlineAwareness) { _, _ in
             model.updateDeadlineAwarenessSettings(draft.deadlineAwareness)
         }
+    }
+
+    private func wavePreviewButton(_ title: String, value: String, color: Color) -> some View {
+        Button {
+            NotificationCenter.default.post(
+                name: .quietTasksPreviewDeadlineWave,
+                object: value
+            )
+        } label: {
+            Label(title, systemImage: "wave.3.right")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(color)
     }
 
     private var googleSection: some View {

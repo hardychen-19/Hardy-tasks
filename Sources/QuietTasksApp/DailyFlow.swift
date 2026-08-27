@@ -109,6 +109,7 @@ final class ScheduleModel: ObservableObject {
 extension Notification.Name {
     static let quietTasksOpenSchedule = Notification.Name("quietTasks.openSchedule")
     static let quietTasksScheduleChanged = Notification.Name("quietTasks.scheduleChanged")
+    static let quietTasksPreviewDeadlineWave = Notification.Name("quietTasks.previewDeadlineWave")
 }
 
 // MARK: - Main workspace
@@ -168,10 +169,12 @@ struct RootWorkspaceView: View {
 
 struct ScheduleWorkspaceView: View {
     @StateObject private var model = ScheduleModel()
+    @StateObject private var settingsModel = TaskModel()
     @State private var selectedView: ScheduleViewFilter = .week
     @State private var weekAnchor = Date()
     @State private var editingItem: ScheduleItem?
     @State private var showingNewItem = false
+    @State private var showingSettings = false
 
     private var weekDays: [Date] {
         let calendar = Calendar.current
@@ -238,6 +241,11 @@ struct ScheduleWorkspaceView: View {
                 onCancel: { editingItem = nil }
             )
         }
+        .sheet(isPresented: $showingSettings) {
+            SettingsSheet(model: settingsModel) {
+                showingSettings = false
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .quietTasksScheduleChanged)) { _ in
             model.reload()
         }
@@ -269,6 +277,12 @@ struct ScheduleWorkspaceView: View {
                 Label("New Schedule", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .help("Settings")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
@@ -546,6 +560,11 @@ private struct DeadlineCue {
     let key: String
 }
 
+private struct DeadlineIslandItem {
+    let cue: DeadlineCue
+    let additionalCount: Int
+}
+
 private enum DeadlineAwarenessPlanner {
     static func cues(for tasks: [TaskItem], now: Date = Date()) -> [DeadlineCue] {
         tasks.compactMap { cue(for: $0, now: now) }
@@ -617,53 +636,99 @@ private enum DeadlineAwarenessPlanner {
     }
 }
 
-private final class DeadlineWavePresentation: ObservableObject {
-    @Published var urgency: DeadlineUrgency = .approaching
-    @Published var notchSize = CGSize(width: 185, height: 33)
-    @Published var startedAt = Date()
-    @Published var isVisible = false
-}
-
-private struct DeadlineWaveView: View {
-    @ObservedObject var presentation: DeadlineWavePresentation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !presentation.isVisible)) { context in
-            let elapsed = context.date.timeIntervalSince(presentation.startedAt)
-            let progress = breathProgress(elapsed)
-            let breath = sin(Double.pi * Double(progress))
-            ZStack(alignment: .top) {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 11 + 2 * CGFloat(breath),
-                    bottomTrailingRadius: 11 + 2 * CGFloat(breath),
-                    topTrailingRadius: 0
-                )
-                .stroke(
-                    presentation.urgency.color.opacity(0.16 + 0.64 * breath),
-                    lineWidth: 1.15
-                )
-                .shadow(
-                    color: presentation.urgency.color.opacity(0.34 * breath),
-                    radius: 3.5 + 2.5 * breath
-                )
-                .frame(
-                    width: presentation.notchSize.width + 7 * breath,
-                    height: presentation.notchSize.height + 6 * breath
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+private final class ScreenEdgeWaveView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer = CALayer()
+        layer?.backgroundColor = NSColor.clear.cgColor
     }
 
-    private func breathProgress(_ elapsed: TimeInterval) -> CGFloat {
-        if reduceMotion {
-            return min(max(CGFloat(elapsed / 0.3), 0), 1)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func play(urgency: DeadlineUrgency, reduceMotion: Bool) {
+        layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        layer?.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+
+        let cycleCount = reduceMotion ? 1 : 3
+        let cycleSpacing = reduceMotion ? 0 : 0.78
+        let now = layer?.convertTime(CACurrentMediaTime(), from: nil) ?? CACurrentMediaTime()
+        let bandCount = reduceMotion ? 6 : 12
+        for cycle in 0..<cycleCount {
+            let cycleStart = now + Double(cycle) * cycleSpacing
+            for band in 0..<bandCount {
+                let progress = CGFloat(band) / CGFloat(max(1, bandCount - 1))
+                let beginTime = cycleStart + Double(band) * (reduceMotion ? 0.016 : 0.027)
+                addBand(
+                    urgency: urgency,
+                    progress: progress,
+                    beginTime: beginTime,
+                    duration: reduceMotion ? 0.42 : 0.58
+                )
+            }
         }
-        return min(max(CGFloat(elapsed / 0.86), 0), 1)
+    }
+
+    private func addBand(
+        urgency: DeadlineUrgency,
+        progress: CGFloat,
+        beginTime: CFTimeInterval,
+        duration: CFTimeInterval
+    ) {
+        let inset = 36 * progress
+        let shape = CAShapeLayer()
+        shape.frame = bounds
+        shape.fillColor = NSColor.clear.cgColor
+        let color = bandColor(for: urgency, progress: progress)
+        shape.strokeColor = color.withAlphaComponent(0.22).cgColor
+        shape.lineWidth = 20
+        shape.lineJoin = .round
+        shape.path = CGPath(
+            roundedRect: bounds.insetBy(dx: inset, dy: inset),
+            cornerWidth: 18 + 24 * progress,
+            cornerHeight: 18 + 24 * progress,
+            transform: nil
+        )
+        shape.shadowColor = color.cgColor
+        shape.shadowOpacity = 0.80
+        shape.shadowRadius = 15
+        shape.opacity = 0
+        layer?.addSublayer(shape)
+
+        let opacity = CAKeyframeAnimation(keyPath: "opacity")
+        let peak = Float(0.92 - 0.22 * progress)
+        opacity.values = [0, peak, peak * 0.78, 0]
+        opacity.keyTimes = [0, 0.18, 0.62, 1]
+        opacity.beginTime = beginTime
+        opacity.duration = duration
+        opacity.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        opacity.fillMode = .both
+        opacity.isRemovedOnCompletion = false
+        shape.add(opacity, forKey: "fixed-range-wave")
+    }
+
+    private func bandColor(for urgency: DeadlineUrgency, progress: CGFloat) -> NSColor {
+        let colors: (outer: NSColor, inner: NSColor) = switch urgency {
+        case .approaching:
+            (
+                NSColor(deviceRed: 0.12, green: 0.72, blue: 1.00, alpha: 1),
+                NSColor(deviceRed: 0.18, green: 0.34, blue: 1.00, alpha: 1)
+            )
+        case .urgent:
+            (
+                NSColor(deviceRed: 1.00, green: 0.72, blue: 0.20, alpha: 1),
+                NSColor(deviceRed: 1.00, green: 0.30, blue: 0.04, alpha: 1)
+            )
+        case .overdue:
+            (
+                NSColor(deviceRed: 1.00, green: 0.42, blue: 0.34, alpha: 1),
+                NSColor(deviceRed: 0.82, green: 0.04, blue: 0.10, alpha: 1)
+            )
+        }
+        return colors.outer.blended(withFraction: progress, of: colors.inner) ?? colors.outer
     }
 }
 
@@ -1153,12 +1218,12 @@ final class OverlayCoordinator {
     private let tasks = TaskModel()
     private let schedule = ScheduleModel()
     private let islandPresentation = TaskIslandPresentation()
-    private let deadlineWavePresentation = DeadlineWavePresentation()
     private var edgeTrigger: NSPanel?
     private var notchTrigger: NSPanel?
     private var edgePanel: OverlayPanel?
     private var islandPanel: OverlayPanel?
     private var deadlineWavePanel: OverlayPanel?
+    private var deadlineWaveView: ScreenEdgeWaveView?
     private var edgeWorkItem: DispatchWorkItem?
     private var islandWorkItem: DispatchWorkItem?
     private var islandDismissWorkItem: DispatchWorkItem?
@@ -1195,6 +1260,21 @@ final class OverlayCoordinator {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.evaluateDeadlineAwareness() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .quietTasksPreviewDeadlineWave,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let value = notification.object as? String else { return }
+            let urgency: DeadlineUrgency? = switch value {
+            case "approaching": .approaching
+            case "urgent": .urgent
+            case "overdue": .overdue
+            default: nil
+            }
+            guard let urgency else { return }
+            Task { @MainActor in self?.showDeadlineWave(urgency: urgency) }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -1586,26 +1666,55 @@ final class OverlayCoordinator {
 
     private func showDeadlineAlert(cues: [DeadlineCue]) {
         guard !cues.isEmpty else { return }
-        let ordered = cues.sorted { lhs, rhs in
-            if lhs.urgency != rhs.urgency { return lhs.urgency > rhs.urgency }
-            if lhs.task.taskPriority.rank != rhs.task.taskPriority.rank {
+        let upcoming = cues
+            .filter { $0.urgency != .overdue }
+            .sorted { lhs, rhs in
+                let lhsDeadline = lhs.task.deadline ?? .distantFuture
+                let rhsDeadline = rhs.task.deadline ?? .distantFuture
+                if lhsDeadline != rhsDeadline { return lhsDeadline < rhsDeadline }
                 return lhs.task.taskPriority.rank < rhs.task.taskPriority.rank
             }
-            return (lhs.task.deadline ?? .distantFuture) < (rhs.task.deadline ?? .distantFuture)
+        let overdue = cues
+            .filter { $0.urgency == .overdue }
+            .sorted { lhs, rhs in
+                if lhs.task.taskPriority.rank != rhs.task.taskPriority.rank {
+                    return lhs.task.taskPriority.rank < rhs.task.taskPriority.rank
+                }
+                return (lhs.task.deadline ?? .distantPast) < (rhs.task.deadline ?? .distantPast)
+            }
+
+        let firstItem: DeadlineIslandItem
+        let followUp: DeadlineIslandItem?
+        if let leadingUpcoming = upcoming.first {
+            firstItem = DeadlineIslandItem(
+                cue: leadingUpcoming,
+                additionalCount: max(0, upcoming.count - 1)
+            )
+            followUp = overdue.first.map {
+                DeadlineIslandItem(cue: $0, additionalCount: max(0, overdue.count - 1))
+            }
+        } else if let leadingOverdue = overdue.first {
+            firstItem = DeadlineIslandItem(
+                cue: leadingOverdue,
+                additionalCount: max(0, overdue.count - 1)
+            )
+            followUp = nil
+        } else {
+            return
         }
-        guard let leadingCue = ordered.first else { return }
-        showDeadlineWave(urgency: leadingCue.urgency)
+
+        showDeadlineWave(urgency: firstItem.cue.urgency)
 
         deadlineIslandShowWorkItem?.cancel()
-        let delay = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.38
+        let delay = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.52 : 2.48
         let item = DispatchWorkItem { [weak self] in
-            self?.showDeadlineIsland(cue: leadingCue, additionalCount: max(0, ordered.count - 1))
+            self?.showDeadlineIsland(item: firstItem, followUp: followUp)
         }
         deadlineIslandShowWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
-    private func showDeadlineIsland(cue: DeadlineCue, additionalCount: Int) {
+    private func showDeadlineIsland(item: DeadlineIslandItem, followUp: DeadlineIslandItem?) {
         guard !isPaused, let screen = targetScreen else { return }
         islandDismissWorkItem?.cancel()
         deadlineIslandDismissWorkItem?.cancel()
@@ -1634,8 +1743,8 @@ final class OverlayCoordinator {
             islandPanel = panel
         }
         guard let panel = islandPanel else { return }
-        islandPresentation.deadlineCue = cue
-        islandPresentation.additionalDeadlineCount = additionalCount
+        islandPresentation.deadlineCue = item.cue
+        islandPresentation.additionalDeadlineCount = item.additionalCount
         islandPresentation.isExpanded = false
         islandPresentation.showsContent = false
         panel.setFrame(frame, display: false)
@@ -1648,40 +1757,63 @@ final class OverlayCoordinator {
             self.islandPresentation.showsContent = true
         }
 
-        let item = DispatchWorkItem { [weak self] in self?.hideIslandPanel() }
+        scheduleDeadlineIslandAdvance(followUp: followUp)
+    }
+
+    private func scheduleDeadlineIslandAdvance(followUp: DeadlineIslandItem?) {
+        deadlineIslandDismissWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if let followUp {
+                self.transitionDeadlineIsland(to: followUp)
+            } else {
+                self.hideIslandPanel()
+            }
+        }
         deadlineIslandDismissWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
     }
 
+    private func transitionDeadlineIsland(to item: DeadlineIslandItem) {
+        guard islandPanel?.isVisible == true else { return }
+        islandPresentation.showsContent = false
+        let swap = DispatchWorkItem { [weak self] in
+            guard let self, self.islandPanel?.isVisible == true else { return }
+            self.islandPresentation.deadlineCue = item.cue
+            self.islandPresentation.additionalDeadlineCount = item.additionalCount
+            self.islandPresentation.showsContent = true
+            self.scheduleDeadlineIslandAdvance(followUp: nil)
+        }
+        deadlineIslandShowWorkItem = swap
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: swap)
+    }
+
     private func showDeadlineWave(urgency: DeadlineUrgency) {
-        guard let screen = targetScreen, let notchFrame = physicalNotchFrame(on: screen) else { return }
+        guard let screen = targetScreen else { return }
         deadlineWaveDismissWorkItem?.cancel()
-        let width = notchFrame.width + 20
-        let height = notchFrame.height + 14
-        let frame = NSRect(
-            x: notchFrame.midX - width / 2,
-            y: screen.frame.maxY - height,
-            width: width,
-            height: height
-        )
+        let frame = screen.frame
 
         if deadlineWavePanel == nil {
             let panel = makeOverlayPanel(frame: frame)
             panel.level = .mainMenu + 2
             panel.ignoresMouseEvents = true
-            panel.contentView = NSHostingView(rootView: DeadlineWaveView(presentation: deadlineWavePresentation))
+            let waveView = ScreenEdgeWaveView(frame: NSRect(origin: .zero, size: frame.size))
+            waveView.autoresizingMask = [.width, .height]
+            panel.contentView = waveView
+            deadlineWaveView = waveView
             deadlineWavePanel = panel
         }
 
         guard let panel = deadlineWavePanel else { return }
-        deadlineWavePresentation.notchSize = notchFrame.size
-        deadlineWavePresentation.urgency = urgency
-        deadlineWavePresentation.startedAt = Date()
-        deadlineWavePresentation.isVisible = true
         panel.setFrame(frame, display: false)
+        deadlineWaveView?.frame = NSRect(origin: .zero, size: frame.size)
         panel.orderFrontRegardless()
+        deadlineWaveView?.play(
+            urgency: urgency,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
 
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.32 : 0.9
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.52 : 2.48
         let item = DispatchWorkItem { [weak self] in self?.hideDeadlineWave() }
         deadlineWaveDismissWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
@@ -1689,16 +1821,16 @@ final class OverlayCoordinator {
 
     private func hideDeadlineWave() {
         deadlineWaveDismissWorkItem?.cancel()
-        deadlineWavePresentation.isVisible = false
+        deadlineWaveView?.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
         deadlineWavePanel?.orderOut(nil)
     }
 
 #if DEBUG
     private func showDeadlinePreview(urgency: DeadlineUrgency) {
-        let task = TaskItem(
+        let upcomingTask = TaskItem(
             id: "DEADLINE-PREVIEW",
             title: "Finish today’s most important task",
-            deadline: urgency == .overdue ? Date().addingTimeInterval(-900) : Date().addingTimeInterval(1_800),
+            deadline: Date().addingTimeInterval(1_800),
             done: false,
             createdAt: Date(),
             notes: nil,
@@ -1707,7 +1839,29 @@ final class OverlayCoordinator {
             completedAt: nil,
             deadlineHasTime: true
         )
-        showDeadlineAlert(cues: [DeadlineCue(task: task, urgency: urgency, key: "preview")])
+        let overdueTask = TaskItem(
+            id: "DEADLINE-PREVIEW-OVERDUE",
+            title: "Review the unfinished study notes",
+            deadline: Date().addingTimeInterval(-900),
+            done: false,
+            createdAt: Date(),
+            notes: nil,
+            priority: .high,
+            updatedAt: nil,
+            completedAt: nil,
+            deadlineHasTime: true
+        )
+        let cues: [DeadlineCue]
+        if urgency == .overdue {
+            cues = [
+                DeadlineCue(task: upcomingTask, urgency: .urgent, key: "preview-upcoming"),
+                DeadlineCue(task: overdueTask, urgency: .overdue, key: "preview-overdue"),
+                DeadlineCue(task: overdueTask, urgency: .overdue, key: "preview-overdue-2")
+            ]
+        } else {
+            cues = [DeadlineCue(task: upcomingTask, urgency: urgency, key: "preview")]
+        }
+        showDeadlineAlert(cues: cues)
     }
 #endif
 
