@@ -71,6 +71,12 @@ The visual treatment uses Core Animation layers and stops completely when hidden
 - Xcode with the macOS SDK for building from source.
 - Designed and tested on an Apple Silicon MacBook Air with a notch; the main app and widget also work without one.
 
+## Download
+
+The current universal macOS build is available from [GitHub Releases](https://github.com/hardychen-19/Hardy-tasks/releases/latest). It contains both Apple Silicon and Intel architectures.
+
+The downloadable build is ad-hoc signed and is not notarized. macOS may require approval in **System Settings → Privacy & Security**. Building from source is the recommended path.
+
 ## Build from source
 
 ```bash
