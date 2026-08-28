@@ -1941,11 +1941,7 @@ final class OverlayCoordinator {
     }
 
     private func openMainApp(schedule: Bool) {
-        if schedule { NotificationCenter.default.post(name: .quietTasksOpenSchedule, object: nil) }
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.level == .normal && $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
-        }
+        MainWindowRestorer.shared.show(showSchedule: schedule)
     }
 
     private var targetScreen: NSScreen? {
@@ -2004,16 +2000,178 @@ extension View {
 // MARK: - Menu bar and lifecycle
 
 @MainActor
+final class MainWindowRestorer {
+    static let shared = MainWindowRestorer()
+
+    private weak var observedMainWindow: NSWindow?
+    private var retainedMainWindow: NSWindow?
+    private var fallbackWindowController: NSWindowController?
+
+    private init() {}
+
+    func captureExistingMainWindow() {
+        guard let window = NSApp.windows.first(where: isMainAppWindow) else { return }
+        retain(window)
+    }
+
+    func retain(_ window: NSWindow) {
+        guard isMainAppWindow(window) else { return }
+        window.isReleasedWhenClosed = false
+        observedMainWindow = window
+        retainedMainWindow = window
+    }
+
+    func show(showSchedule: Bool) {
+        if showSchedule {
+            NotificationCenter.default.post(name: .quietTasksOpenSchedule, object: nil)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let window = NSApp.windows.first(where: isMainAppWindow) {
+            retain(window)
+            window.makeKeyAndOrderFront(nil)
+            scheduleDuplicateCollapse()
+            return
+        }
+
+        if let window = retainedMainWindow ?? observedMainWindow {
+            window.makeKeyAndOrderFront(nil)
+            scheduleDuplicateCollapse()
+            return
+        }
+
+        if let controller = fallbackWindowController {
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+            scheduleDuplicateCollapse()
+            return
+        }
+
+        let hostingController = NSHostingController(rootView: RootWorkspaceView())
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Hardy Tasks"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.setContentSize(NSSize(width: 1120, height: 760))
+        window.minSize = NSSize(width: 980, height: 680)
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        let controller = NSWindowController(window: window)
+        fallbackWindowController = controller
+        retain(window)
+        controller.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+        scheduleDuplicateCollapse()
+    }
+
+    func handleSystemReopen(showSchedule: Bool) {
+        if showSchedule {
+            NotificationCenter.default.post(name: .quietTasksOpenSchedule, object: nil)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        // SwiftUI may recreate its WindowGroup asynchronously after a Dock or
+        // Finder reopen. Give that path one run-loop beat before restoring the
+        // retained window, then collapse any race to one visible main window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            let visibleWindows = NSApp.windows.filter {
+                self.isMainAppWindow($0) && $0.isVisible
+            }
+
+            if let preferred = visibleWindows.first(where: { $0.isKeyWindow || $0.isMainWindow })
+                ?? visibleWindows.first {
+                self.retain(preferred)
+                for extra in visibleWindows where extra !== preferred {
+                    extra.orderOut(nil)
+                }
+                preferred.makeKeyAndOrderFront(nil)
+                return
+            }
+
+            self.show(showSchedule: false)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.collapseDuplicateWindows()
+            }
+        }
+    }
+
+    private func collapseDuplicateWindows() {
+        let visibleWindows = NSApp.windows.filter {
+            isMainAppWindow($0) && $0.isVisible
+        }
+        guard visibleWindows.count > 1 else { return }
+
+        let preferred = visibleWindows.first(where: { $0.isKeyWindow || $0.isMainWindow })
+            ?? visibleWindows[0]
+        retain(preferred)
+        for extra in visibleWindows where extra !== preferred {
+            extra.orderOut(nil)
+        }
+        preferred.makeKeyAndOrderFront(nil)
+    }
+
+    private func scheduleDuplicateCollapse() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.collapseDuplicateWindows()
+        }
+    }
+
+    private func isMainAppWindow(_ window: NSWindow) -> Bool {
+        window.level == .normal && window.canBecomeMain && !(window is NSPanel)
+    }
+}
+
+@MainActor
 final class QuietTasksAppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = OverlayCoordinator()
     private var statusItem: NSStatusItem?
     private var pauseMenuItem: NSMenuItem?
     private var loginMenuItem: NSMenuItem?
+    private var mainWindowObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchedAsLoginItem = NSAppleEventManager.shared()
+            .currentAppleEvent?
+            .paramDescriptor(forKeyword: keyAELaunchedAsLogInItem)?
+            .booleanValue ?? false
+
         overlay.start()
         installStatusItem()
         registerLoginItemIfNeeded()
+
+        mainWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeMainNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated {
+                MainWindowRestorer.shared.retain(window)
+            }
+        }
+
+        DispatchQueue.main.async {
+            MainWindowRestorer.shared.captureExistingMainWindow()
+        }
+
+        if !launchedAsLoginItem {
+            MainWindowRestorer.shared.handleSystemReopen(showSchedule: false)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let mainWindowObserver {
+            NotificationCenter.default.removeObserver(mainWindowObserver)
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        MainWindowRestorer.shared.handleSystemReopen(showSchedule: false)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -2022,7 +2180,7 @@ final class QuietTasksAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            sender.windows.first(where: { $0.level == .normal })?.makeKeyAndOrderFront(nil)
+            MainWindowRestorer.shared.handleSystemReopen(showSchedule: false)
         }
         return true
     }
@@ -2078,9 +2236,7 @@ final class QuietTasksAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func activateMainWindow(showSchedule: Bool) {
-        if showSchedule { NotificationCenter.default.post(name: .quietTasksOpenSchedule, object: nil) }
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.level == .normal && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        MainWindowRestorer.shared.show(showSchedule: showSchedule)
     }
 
     private func registerLoginItemIfNeeded() {
