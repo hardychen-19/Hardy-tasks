@@ -29,3 +29,7 @@ XcodeDerivedData/
 # Local notes
 .env
 .env.*
+
+# Personal planner defaults and temporary plans
+.hardy-plan.local.json
+.hardy-plan-tmp/

@@ -121,6 +121,19 @@ Hardy Tasks keeps local task and schedule data separate:
 
 The existing path is retained so current Quiet Tasks installations can upgrade without losing data. Local features do not require an account. The optional Google Tasks connection requests read-only access and never edits Google tasks.
 
+## Low-context Codex automation
+
+The repository includes a local Codex skill at `.codex/skills/hardy-plan-bridge`. It keeps the model focused on interpretation while a deterministic Node.js bridge handles extraction, validation, conflict checks, confirmation, CLI writes, and read-back verification.
+
+For example, a timetable workbook can be reduced to only the rows for one class before the model sees the result:
+
+```bash
+node .codex/skills/hardy-plan-bridge/scripts/hardy-plan.mjs \
+  extract-course --input "/path/to/第2周课表.xlsx"
+```
+
+The extraction output can go directly into preflight when no judgment is needed; otherwise the model changes only its compact `suggestedPlan`. The bridge also accepts a standalone JSON plan for schedules and tasks. Every write goes through the bundled Hardy Tasks CLI workflow, rejects stale confirmation tokens, skips exact duplicates, blocks unapproved overlaps, creates the CLI's normal backup, and verifies the result afterward. Personal class names and period times belong in the gitignored `.hardy-plan.local.json` file.
+
 ## Optional Google Tasks import
 
 1. Create an OAuth client for an installed/native app in Google Cloud.
@@ -135,6 +148,8 @@ Only `https://www.googleapis.com/auth/tasks.readonly` is requested. Google due d
 - `Sources/QuietTasksApp/QuietTasksApp.swift` — app and task workspace.
 - `Sources/QuietTasksApp/DailyFlow.swift` — schedule workspace, edge panel, task island, and deadline waves.
 - `Sources/QuietTasksWidget/` — WidgetKit extension.
+- `Scripts/quiet-tasks-cli` — backup-aware, non-deleting local task and schedule adapter.
+- `.codex/skills/hardy-plan-bridge/` — low-context extraction, plan validation, confirmation, and verified writes.
 - [`PRODUCT.md`](PRODUCT.md) — product boundaries and interaction model.
 - [`DESIGN.md`](DESIGN.md) — visual and motion specification.
 

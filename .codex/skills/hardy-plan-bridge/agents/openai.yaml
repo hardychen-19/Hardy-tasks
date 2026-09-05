@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hardy Plan Bridge"
+  short_description: "Turn model decisions into safe Hardy Tasks writes"
+  default_prompt: "Extract only useful input, convert intent into a validated Hardy Tasks plan, preview it, and apply it after confirmation."

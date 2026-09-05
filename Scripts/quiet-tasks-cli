@@ -1,0 +1,319 @@
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { randomUUID } = require("node:crypto");
+const { spawnSync } = require("node:child_process");
+
+const storeDir = process.env.QUIET_TASKS_STORE_DIR || "/Users/Shared/QuietTasks";
+const taskFile = path.join(storeDir, "tasks.json");
+const scheduleFile = path.join(storeDir, "schedule.json");
+const backupDir = path.join(storeDir, "backups");
+
+function fail(message) {
+  console.error(`Error: ${message}`);
+  process.exit(1);
+}
+
+function readTasks() {
+  if (!fs.existsSync(taskFile)) return [];
+  const parsed = JSON.parse(fs.readFileSync(taskFile, "utf8"));
+  if (!Array.isArray(parsed)) fail("invalid task store: expected a JSON array");
+  return parsed;
+}
+
+function readSchedule() {
+  if (!fs.existsSync(scheduleFile)) return [];
+  const parsed = JSON.parse(fs.readFileSync(scheduleFile, "utf8"));
+  if (!Array.isArray(parsed)) fail("invalid schedule store: expected a JSON array");
+  return parsed;
+}
+
+function timestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function priorityRank(priority) {
+  return { high: 0, normal: 1, low: 2 }[priority || "normal"] ?? 1;
+}
+
+function sortTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    if (Boolean(a.done) !== Boolean(b.done)) return a.done ? 1 : -1;
+    if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+    const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
+    if (priorityDiff) return priorityDiff;
+    if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+    if (a.deadline) return -1;
+    if (b.deadline) return 1;
+    return (a.createdAt || "").localeCompare(b.createdAt || "");
+  });
+}
+
+function refreshWidget() {
+  if (process.env.QUIET_TASKS_NO_REFRESH === "1" || process.platform !== "darwin") return;
+  spawnSync("open", ["-g", "quiettasks://open"], { stdio: "ignore" });
+}
+
+function saveTasks(tasks) {
+  fs.mkdirSync(storeDir, { recursive: true });
+  fs.mkdirSync(backupDir, { recursive: true });
+  if (fs.existsSync(taskFile)) {
+    fs.copyFileSync(taskFile, path.join(backupDir, `tasks-${timestamp()}.json`));
+  }
+
+  const temporary = `${taskFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(sortTasks(tasks), null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, taskFile);
+  fs.chmodSync(taskFile, 0o600);
+  refreshWidget();
+}
+
+function sortSchedule(items) {
+  return [...items].sort((a, b) => {
+    if (a.startAt !== b.startAt) return a.startAt.localeCompare(b.startAt);
+    return (a.createdAt || "").localeCompare(b.createdAt || "");
+  });
+}
+
+function saveSchedule(items) {
+  fs.mkdirSync(storeDir, { recursive: true });
+  fs.mkdirSync(backupDir, { recursive: true });
+  if (fs.existsSync(scheduleFile)) {
+    fs.copyFileSync(scheduleFile, path.join(backupDir, `schedule-${timestamp()}.json`));
+  }
+  const temporary = `${scheduleFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(sortSchedule(items), null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, scheduleFile);
+  fs.chmodSync(scheduleFile, 0o600);
+  refreshWidget();
+}
+
+function parseArgs(argv) {
+  const result = { subtask: [] };
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (!item.startsWith("--")) fail(`unexpected argument: ${item}`);
+    const key = item.slice(2);
+    if (["pin", "unpin", "include-done", "allow-conflict"].includes(key)) {
+      result[key] = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) fail(`missing value for --${key}`);
+    index += 1;
+    if (key === "subtask") result.subtask.push(value);
+    else result[key] = value;
+  }
+  return result;
+}
+
+function parseDeadline(value) {
+  if (!value) return undefined;
+  let date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) date = new Date(`${value}T23:59:00`);
+  else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(value)) date = new Date(value.replace(" ", "T"));
+  else date = new Date(value);
+  if (Number.isNaN(date.getTime())) fail(`invalid deadline: ${value}`);
+  return date.toISOString();
+}
+
+function parseTimestamp(value, label) {
+  if (!value) fail(`${label} is required`);
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(value)
+    ? value.replace(" ", "T")
+    : value;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) fail(`invalid ${label}: ${value}`);
+  return date.toISOString();
+}
+
+function findOne(tasks, args) {
+  let matches;
+  if (args.id) matches = tasks.filter((task) => task.id === args.id);
+  else if (args.title) matches = tasks.filter((task) => task.title === args.title);
+  else fail("provide --id or --title");
+
+  if (matches.length === 0) fail("no matching task");
+  if (matches.length > 1) fail("multiple matching tasks; use --id");
+  return matches[0];
+}
+
+function printTasks(tasks) {
+  console.log(JSON.stringify(tasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    deadline: task.deadline ?? null,
+    priority: task.priority ?? "normal",
+    pinned: Boolean(task.pinned),
+    done: Boolean(task.done),
+    completedAt: task.completedAt ?? null,
+    notes: task.notes ?? null,
+    subtasks: task.subtasks ?? [],
+  })), null, 2));
+}
+
+function printSchedule(items) {
+  console.log(JSON.stringify(items.map((item) => ({
+    id: item.id,
+    title: item.title,
+    startAt: item.startAt,
+    endAt: item.endAt,
+    notes: item.notes ?? null,
+  })), null, 2));
+}
+
+function findOneSchedule(items, args) {
+  let matches;
+  if (args.id) matches = items.filter((item) => item.id === args.id);
+  else if (args.title) matches = items.filter((item) => item.title === args.title);
+  else fail("provide --id or --title");
+  if (matches.length === 0) fail("no matching schedule item");
+  if (matches.length > 1) fail("multiple matching schedule items; use --id");
+  return matches[0];
+}
+
+function overlappingScheduleItems(items, candidate, ignoredID = null) {
+  return items.filter((item) => item.id !== ignoredID
+    && candidate.startAt < item.endAt
+    && candidate.endAt > item.startAt);
+}
+
+const [command = "help", ...rest] = process.argv.slice(2);
+const args = parseArgs(rest);
+const tasks = readTasks();
+const schedule = readSchedule();
+
+if (command === "list") {
+  printTasks(args["include-done"] ? tasks : tasks.filter((task) => !task.done));
+} else if (command === "add") {
+  const title = (args.title || "").trim();
+  if (!title) fail("add requires --title");
+  const now = new Date().toISOString();
+  const deadline = parseDeadline(args.due);
+  if (tasks.some((task) => !task.done && task.title === title && (task.deadline ?? null) === (deadline ?? null))) {
+    fail("the same unfinished task and deadline already exist");
+  }
+  const priority = args.priority || "normal";
+  if (!["low", "normal", "high"].includes(priority)) {
+    fail("priority must be low, normal, or high");
+  }
+
+  const subtasks = args.subtask.map((titleText) => ({
+    id: randomUUID().toUpperCase(),
+    title: titleText,
+    done: false,
+    createdAt: now,
+  }));
+
+  const task = {
+    id: randomUUID().toUpperCase(),
+    title,
+    deadline: deadline ?? null,
+    done: false,
+    createdAt: now,
+    notes: args.notes || null,
+    priority,
+    updatedAt: null,
+    completedAt: null,
+    subtasks: subtasks.length ? subtasks : null,
+    recurrence: null,
+    pinned: args.pin || null,
+    deadlineHasTime: deadline ? !/^\d{4}-\d{2}-\d{2}$/.test(args.due) : null,
+  };
+
+  tasks.push(task);
+  saveTasks(tasks);
+  printTasks([task]);
+} else if (command === "update") {
+  const task = findOne(tasks, args);
+  if (args["new-title"]) task.title = args["new-title"].trim();
+  if (args.due) {
+    task.deadline = parseDeadline(args.due);
+    task.deadlineHasTime = !/^\d{4}-\d{2}-\d{2}$/.test(args.due);
+  }
+  if (args.priority) {
+    if (!["low", "normal", "high"].includes(args.priority)) {
+      fail("priority must be low, normal, or high");
+    }
+    task.priority = args.priority;
+  }
+  if (args.pin) task.pinned = true;
+  if (args.unpin) task.pinned = null;
+  if (args.notes !== undefined) task.notes = args.notes || null;
+  task.updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  printTasks([task]);
+} else if (command === "complete") {
+  const task = findOne(tasks, args);
+  if (task.done) fail("task is already complete");
+  task.done = true;
+  task.completedAt = new Date().toISOString();
+  task.updatedAt = task.completedAt;
+  saveTasks(tasks);
+  printTasks([task]);
+} else if (command === "schedule-list") {
+  let visible = schedule;
+  if (args.from) {
+    const from = parseTimestamp(args.from, "from");
+    visible = visible.filter((item) => item.endAt > from);
+  }
+  if (args.to) {
+    const to = parseTimestamp(args.to, "to");
+    visible = visible.filter((item) => item.startAt < to);
+  }
+  printSchedule(sortSchedule(visible));
+} else if (command === "schedule-add") {
+  const title = (args.title || "").trim();
+  if (!title) fail("schedule-add requires --title");
+  const startAt = parseTimestamp(args.start, "start");
+  const endAt = parseTimestamp(args.end, "end");
+  if (endAt <= startAt) fail("end must be later than start");
+  if (schedule.some((item) => item.title === title && item.startAt === startAt && item.endAt === endAt)) {
+    fail("the same schedule item already exists");
+  }
+  const now = new Date().toISOString();
+  const item = {
+    id: randomUUID().toUpperCase(),
+    title,
+    startAt,
+    endAt,
+    notes: args.notes || null,
+    createdAt: now,
+    updatedAt: null,
+  };
+  const conflicts = overlappingScheduleItems(schedule, item);
+  if (conflicts.length && !args["allow-conflict"]) {
+    fail(`schedule conflict with: ${conflicts.map((conflict) => conflict.title).join(", ")}`);
+  }
+  schedule.push(item);
+  saveSchedule(schedule);
+  printSchedule([item]);
+} else if (command === "schedule-update") {
+  const item = findOneSchedule(schedule, args);
+  const next = { ...item };
+  if (args["new-title"]) next.title = args["new-title"].trim();
+  if (args.start) next.startAt = parseTimestamp(args.start, "start");
+  if (args.end) next.endAt = parseTimestamp(args.end, "end");
+  if (args.notes !== undefined) next.notes = args.notes || null;
+  if (!next.title) fail("title cannot be empty");
+  if (next.endAt <= next.startAt) fail("end must be later than start");
+  const conflicts = overlappingScheduleItems(schedule, next, item.id);
+  if (conflicts.length && !args["allow-conflict"]) {
+    fail(`schedule conflict with: ${conflicts.map((conflict) => conflict.title).join(", ")}`);
+  }
+  Object.assign(item, next, { updatedAt: new Date().toISOString() });
+  saveSchedule(schedule);
+  printSchedule([item]);
+} else {
+  console.log(`Usage:
+  quiet-tasks-cli list [--include-done]
+  quiet-tasks-cli add --title TITLE [--due "YYYY-MM-DD HH:MM"] [--priority high|normal|low] [--pin] [--notes TEXT] [--subtask TITLE]
+  quiet-tasks-cli update (--id ID | --title TITLE) [--new-title TITLE] [--due DATE] [--priority PRIORITY] [--pin|--unpin] [--notes TEXT]
+  quiet-tasks-cli complete (--id ID | --title TITLE)
+  quiet-tasks-cli schedule-list [--from DATE] [--to DATE]
+  quiet-tasks-cli schedule-add --title TITLE --start DATE --end DATE [--notes TEXT] [--allow-conflict]
+  quiet-tasks-cli schedule-update (--id ID | --title TITLE) [--new-title TITLE] [--start DATE] [--end DATE] [--notes TEXT] [--allow-conflict]
+
+Task and schedule stores are separate. This adapter intentionally has no delete command. Every mutation creates a backup.`);
+}
