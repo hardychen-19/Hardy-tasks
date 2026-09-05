@@ -1385,30 +1385,7 @@ struct TaskWorkspaceView: View {
             .navigationTitle("Hardy Tasks")
             .frame(minWidth: 220)
         } detail: {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.horizontal, 28)
-                    .padding(.top, 26)
-                    .padding(.bottom, 18)
-
-                Divider()
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        addComposer
-
-                        if visibleTasks.isEmpty {
-                            emptyState
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 90)
-                        } else {
-                            taskList
-                        }
-                    }
-                    .padding(28)
-                }
-            }
-            .workspaceContentSurface()
+            taskDetail
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search tasks")
         .toolbar {
@@ -1503,6 +1480,41 @@ struct TaskWorkspaceView: View {
         .frame(minWidth: 880, minHeight: 620)
     }
 
+    private var taskDetail: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 28)
+                .padding(.top, 26)
+                .padding(.bottom, 18)
+
+            Divider()
+
+            addComposer
+                .padding(.horizontal, 28)
+                .padding(.top, 28)
+                .padding(.bottom, 18)
+
+            ScrollView {
+                taskScrollContent
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 28)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .workspaceContentSurface()
+    }
+
+    @ViewBuilder
+    private var taskScrollContent: some View {
+        if visibleTasks.isEmpty {
+            emptyState
+                .frame(maxWidth: .infinity)
+                .padding(.top, 72)
+        } else {
+            taskList
+        }
+    }
+
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1556,7 +1568,7 @@ struct TaskWorkspaceView: View {
     }
 
     private var taskList: some View {
-        LazyVStack(spacing: 10) {
+        VStack(spacing: 10) {
             ForEach(visibleTasks) { task in
                 TaskRow(
                     task: task,
